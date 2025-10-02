@@ -1,4 +1,40 @@
-#### Platform engineer defines component type
+## Overview
+
+The system uses CEL (Common Expression Language) templates in ComponentDefinitions to dynamically generate Kubernetes resources. Template variables come from multiple sources:
+
+### CEL Template Context
+
+Templates have access to:
+
+1. **`${metadata.*}`** - Component instance metadata (name, namespace, labels)
+
+   - Source: Component CR metadata
+
+2. **`${spec.*}`** - Component spec parameters
+
+   - Source: Component CR spec (from generated CRD schema)
+   - Includes: parameters, envOverrides, and platform-injected fields
+
+3. **`${build.*}`** - Build context (image, tag, etc.)
+
+   - Source: Platform-injected global variable
+   - Resolved from `buildRef` at runtime
+
+4. **`${workload.*}`** - Application workload metadata
+
+   - Source: `workload.yaml` from developer's source repository
+   - Contains: endpoints, resource requirements, health checks, etc.
+   - `${workload.endpoints}` is the primary way to access endpoint configurations in templates
+
+### Developer's Source Repository
+
+Developers include a `workload.yaml` file in their source repository that defines application metadata (endpoints, resource requirements, health checks, etc.). See the Developer Workflow section below for a complete example.
+
+---
+
+## Platform Engineer Defines ComponentDefinition
+
+Platform Engineer creates a ComponentDefinition with CEL templates that reference the context variables:
 
 ```yaml
 apiVersion: platform/v1alpha1
@@ -39,8 +75,8 @@ schema:
             spec:
               containers:
                 - name: app
-                  image: ${build.image}  # Resolved from buildRef at runtime
-                  ports: ${spec.endpoints.map(e, {"containerPort": e.port})}
+                  image: ${build.image}  # Platform-injected from build context
+                  ports: ${workload.endpoints.map(e, {"containerPort": e.port})}  # From workload.yaml
 
                 - name: cloud-sql-proxy
                   image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.8.0
@@ -63,10 +99,10 @@ schema:
         spec:
           selector:
             app: ${metadata.name}
-          ports: ${spec.endpoints.map(e, {"name": e.name, "port": e.port, "targetPort": e.port, "protocol": e.protocol == "udp" ? "UDP" : "TCP"})}
+          ports: ${workload.endpoints.map(e, {"name": e.name, "port": e.port, "targetPort": e.port, "protocol": e.protocol == "udp" ? "UDP" : "TCP"})}  # From workload.yaml
 
     - id: public-ingress
-      forEach: ${spec.endpoints.filter(e, e.visibility == "public")}
+      forEach: ${workload.endpoints.filter(e, e.visibility == "public")}  # From workload.yaml
       template:
         apiVersion: networking.k8s.io/v1
         kind: Ingress
@@ -93,16 +129,16 @@ schema:
           name: ${metadata.name}
         spec:
           hosts:
-            - ${spec.endpoints.filter(e, e.visibility == "public").map(e, e.host)}
+            - ${workload.endpoints.filter(e, e.visibility == "public").map(e, e.host)}
           pathPrefixes:
-            - ${spec.endpoints.filter(e, e.visibility == "public").map(e, e.path)}
+            - ${workload.endpoints.filter(e, e.visibility == "public").map(e, e.path)}
           scaleTargetRef:
             name: ${metadata.name}
             kind: Deployment
             apiVersion: apps/v1
           replicas:
-            min: ${spec.scaleToZero.pendingRequests > 0 ? 0 : 1}
-            max: ${spec.maxReplicas}
+            min: ${spec.scaleToZero.pendingRequests > 0 ? 0 : 1}  # From Component spec
+            max: ${spec.maxReplicas}  # From Component spec
           scalingMetric:
             requestRate:
               granularity: 1s
@@ -110,10 +146,16 @@ schema:
               window: 1m
 ```
 
-#### Generated CRD json schema
+---
 
-- contains both parameters and envOverrides.
-- contains platform injected build ref and endpoints fields
+## Generated CRD Schema
+
+The platform generates a CRD for developers based on the ComponentDefinition schema. The generated CRD:
+
+- Contains both `parameters` and `envOverrides` from ComponentDefinition
+- Includes platform-injected field: `buildRef`
+- Developers interact with this CRD, not the raw ComponentDefinition
+- Endpoints come from `workload.yaml` and are NOT part of the Component CR spec
 
 ```json
 {
@@ -153,13 +195,6 @@ schema:
           "required": ["name"],
           "description": "Reference to RepositoryBuild (auto-injected by platform)"
         },
-        "endpoints": {
-          "type": "array",
-          "items": {
-            "$ref": "https://schemas.platform.io/v1alpha1/Endpoint.json"
-          },
-          "description": "Array of endpoint configurations (auto-injected by platform)"
-        },
         "maxReplicas": {
           "type": "integer",
           "default": 1,
@@ -190,14 +225,48 @@ schema:
           }
         }
       },
-      "required": ["buildRef", "endpointsRef"]
+      "required": ["buildRef"]
     }
   },
   "required": ["apiVersion", "kind", "metadata", "spec"]
 }
 ```
 
-#### Developer defines repository build
+---
+
+## Developer Workflow
+
+### Step 1: Developer's Source Repository
+
+Developer creates `workload.yaml` in their source repo:
+
+```yaml
+# myapp/workload.yaml
+endpoints:
+  - name: api
+    port: 8080
+    path: /api
+    visibility: public
+    protocol: http
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 512Mi
+
+healthCheck:
+  liveness:
+    path: /health
+    port: 8080
+  readiness:
+    path: /ready
+    port: 8080
+```
+
+### Step 2: Developer Defines Repository Build
 
 ```yaml
 apiVersion: platform/v1alpha1
@@ -224,7 +293,9 @@ spec:
         value: ./Dockerfile
 ```
 
-#### Developer instantiates component
+### Step 3: Developer Instantiates Component
+
+The platform automatically extracts `endpoints` from `workload.yaml` and injects into the Component spec:
 
 ```yaml
 apiVersion: platform/v1alpha1
@@ -236,13 +307,6 @@ spec:
   # Platform auto-injected fields
   buildRef:
     name: customer-portal-build
-  endpoints:
-    - name: api
-      port: 8080
-      path: /api
-      host: api.example.com
-      visibility: public
-      protocol: http
 
   # Fields from envOverrides (can be customized)
   maxReplicas: 3
@@ -254,7 +318,11 @@ spec:
     pendingRequests: 50
 ```
 
-#### Developer/PE overrides component parameters for individual env
+**Note:** Endpoints come from `workload.yaml` and are NOT part of the Component CR spec. They are available to templates via `${workload.endpoints}`.
+
+### Step 4: Environment-Specific Overrides
+
+Developer/PE creates EnvBinding for production environment:
 
 ```yaml
 apiVersion: platform/v1alpha1
@@ -268,38 +336,72 @@ spec:
     namespace: my-project
   environment: production
 
-  # Component field overrides
+  # Override envOverrides fields (maxReplicas, rollingUpdate)
   overrides:
     maxReplicas: 10
     rollingUpdate:
       maxSurge: 5
 
-  # Override endpoints for production
+  # Environment-specific endpoint hosts (only name + host)
   endpoints:
     - name: api
-      port: 8080
-      path: /api
       host: api.production.example.com
-      visibility: public
-      protocol: https
-    - name: admin
-      port: 8080
-      path: /admin
+
+    - name: admin  # Additional endpoint for prod only
       host: admin.production.example.com
-      visibility: internal
-      protocol: https
 ```
 
-#### Environment Promotion Workflow
+**Note:** EnvBinding can override:
+
+- `envOverrides` fields (like `maxReplicas`)
+- `endpoints` - only endpoint name and host mapping (port, path, visibility, protocol come from workload.yaml)
+- Cannot override `parameters` (those are static across all environments)
+
+---
+
+## Environment Promotion Workflow
 
 1. **Automatic Application**: Changes to Component or ComponentDefinition automatically apply to the first environment (e.g., development)
-2. **Controlled Promotion**: For subsequent environments, changes require explicit promotion via:
-   - CLI/API command: `oc promote component customer-portal --from development --to staging`
-   - GitOps: Updating EnvBinding in environment-specific Git location
-3. **Snapshot Capture**: EnvBinding captures immutable snapshots of both ComponentDefinition and Component at promotion time
-4. **Isolation**: Each environment runs with its captured snapshot, preventing unexpected propagation of changes
 
-#### EnvBinding CRD JSON Schema (spec)
+2. **Controlled Promotion**: For subsequent environments, changes require explicit promotion:
+
+   **Via CLI/API:**
+   ```bash
+   oc promote component customer-portal --from development --to staging
+   ```
+   - Creates ComponentEnvSnapshot capturing current state
+   - Updates EnvBinding with snapshot reference
+
+   **Via GitOps:**
+   ```bash
+   # Step 1: Manually create snapshot
+   oc snapshot create customer-portal --environment staging
+   # Returns: customer-portal-staging-20250102-001
+
+   # Step 2: Update EnvBinding in Git with snapshot reference
+   ```
+   ```yaml
+   apiVersion: platform/v1alpha1
+   kind: EnvBinding
+   metadata:
+     name: customer-portal-staging
+   spec:
+     owner:
+       componentName: customer-portal
+     environment: staging
+
+     componentEnvSnapshotRef:
+       name: customer-portal-staging-20250102-001  # ← Must reference snapshot
+
+     overrides:
+       maxReplicas: 5
+   ```
+
+3. **Snapshot Isolation**: Each environment runs with its captured snapshot, preventing unexpected propagation of changes
+
+---
+
+## EnvBinding CRD Schema
 
 ```json
 {
@@ -332,9 +434,20 @@ spec:
     "endpoints": {
       "type": "array",
       "items": {
-        "$ref": "https://schemas.platform.io/v1alpha1/Endpoint.json"
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Endpoint name (must match an endpoint from workload.yaml)"
+          },
+          "host": {
+            "type": "string",
+            "description": "Environment-specific host for this endpoint"
+          }
+        },
+        "required": ["name", "host"]
       },
-      "description": "Environment-specific endpoint configurations"
+      "description": "Environment-specific host mappings for endpoints (port, path, visibility, protocol come from workload.yaml)"
     },
     "componentEnvSnapshotRef": {
       "type": "object",
@@ -353,7 +466,9 @@ spec:
 }
 ```
 
-#### ComponentEnvSnapshot Resource
+---
+
+## ComponentEnvSnapshot Resource
 
 Immutable resource that captures component configuration state for an environment:
 
@@ -386,7 +501,7 @@ spec:
     # ... complete Component spec
 ```
 
-#### ComponentEnvSnapshot JSON Schema (spec)
+### ComponentEnvSnapshot JSON Schema
 
 ```json
 {
@@ -426,3 +541,52 @@ spec:
   ]
 }
 ```
+
+---
+
+## Summary: Data Flow
+
+### 1. At Component Creation Time
+
+```
+Developer's Source Repo (workload.yaml)
+        ↓
+   [Platform Extracts]
+        ↓
+Component CR (spec.endpoints auto-populated)
+        +
+Component CR (spec.parameters, spec.envOverrides)
+        +
+Platform Globals (build.*, env.*)
+        ↓
+   [CEL Template Evaluation]
+        ↓
+Generated K8s Resources
+```
+
+### 2. CEL Template Context Sources
+
+| Variable                              | Source                                | Example                            |
+| ------------------------------------- | ------------------------------------- | ---------------------------------- |
+| `${metadata.name}`                    | Component CR metadata                 | `customer-portal`                  |
+| `${spec.maxReplicas}`                 | Component CR spec (envOverride)       | `3`                                |
+| `${spec.scaleToZero.pendingRequests}` | Component CR spec (parameter)         | `50`                               |
+| `${workload.endpoints}`               | Developer's workload.yaml             | `[{name: "api", port: 8080, ...}]` |
+| `${build.image}`                      | Platform-injected, resolved from buildRef | `gcr.io/project/app:v1.2.3`        |
+
+### 3. Key Points
+
+1. **workload.yaml is the source of truth** for application metadata (endpoints, resources, health checks)
+2. **Endpoints are NOT in Component CR** - they come exclusively from workload.yaml
+3. **EnvBinding.endpoints** - only endpoint name + host mapping per environment
+4. **Port, path, visibility, protocol** come from workload.yaml and cannot be overridden
+5. **CEL templates access** endpoints via `${workload.endpoints}` merged with `${env.endpoints}`
+6. **Platform globals** (`build.*`) are injected at runtime by the controller
+
+### 4. Benefits
+
+- **Single source of truth**: workload.yaml travels with the code
+- **Convention over configuration**: Endpoints defined once in workload.yaml
+- **Minimal environment config**: Only specify what varies (hosts) via EnvBinding
+- **Environment-aware**: Different hosts per environment, other endpoint attributes stay consistent
+- **Type-safe**: CEL expressions validated against schema
