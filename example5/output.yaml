@@ -1,8 +1,11 @@
 resources:
     - apiVersion: v1
       data:
-        features: |
-            ["feature-logging","feature-monitoring","feature-tracing","feature-caching"]
+        features:
+            - feature-logging
+            - feature-monitoring
+            - feature-tracing
+            - feature-caching
         featuresList: feature-logging,feature-monitoring,feature-tracing,feature-caching
       kind: ConfigMap
       metadata:
