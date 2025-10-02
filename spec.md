@@ -45,12 +45,12 @@ schema:
   classVersion: "1" # a simple versioning system for PEs
   envOverrides:
     # both schemas merged for the CRD schema generation
-    maxReplicas: number | default=1
+    maxReplicas: integer | default=1
     rollingUpdate:
-      maxSurge: number | default=1 maximum=5
+      maxSurge: integer | default=1 maximum=5
   parameters:
     scaleToZero:
-      pendingRequests: number | maximum=100
+      pendingRequests: integer | maximum=100
   resources:
     - id: deployment
       template:

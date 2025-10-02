@@ -295,13 +295,13 @@ Following the ComponentDefinition model, addons distinguish between:
 ```yaml
 schema:
   parameters:
-    volumeName: string      # Static: same mount point everywhere
-    mountPath: string       # Static: same path everywhere
-    containerName: string   # Static: same container everywhere
+    volumeName: string | required=true      # Static: same mount point everywhere
+    mountPath: string | required=true       # Static: same path everywhere
+    containerName: string | default=app     # Static: same container everywhere
 
   envOverrides:
-    size: string | default=10Gi           # Env-specific: dev=10Gi, prod=200Gi
-    storageClass: string | default=standard  # Env-specific: dev=standard, prod=premium
+    size: string | default=10Gi pattern="^[0-9]+[EPTGMK]i$"           # Env-specific: dev=10Gi, prod=200Gi
+    storageClass: string | default=standard enum="standard,fast,premium"  # Env-specific: dev=standard, prod=premium
 ```
 
 ## Benefits

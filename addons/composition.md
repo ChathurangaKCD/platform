@@ -83,13 +83,9 @@ metadata:
 spec:
   schema:
     parameters:
-      replicas:
-        type: number
-        default: 1
+      replicas: integer | default=1
     envOverrides:
-      maxReplicas:
-        type: number
-        default: 3
+      maxReplicas: integer | default=3
   resources:
     - id: deployment
       template:
@@ -490,13 +486,13 @@ spec:
   schema:
     # Merged schema from step 4
     parameters:
-      replicas: number | default=1
+      replicas: integer | default=1
       persistentVolume:
-        volumeName: string
+        volumeName: string | required=true
         size: string | default=10Gi
       tlsCertificate:
-        issuer: string
-        domains: array
+        issuer: string | default=letsencrypt-prod
+        domains: "[]string" | required=true
 
   resources:
     # Original resources from ComponentDefinition
@@ -882,7 +878,7 @@ metadata:
 spec:
   schema:
     parameters:
-      replicas: number | default=1
+      replicas: integer | default=1
   resources:
     - id: deployment
       template:
@@ -918,14 +914,14 @@ metadata:
 spec:
   schema:
     parameters:
-      replicas: number | default=1
+      replicas: integer | default=1
       persistentVolume:
-        volumeName: string
+        volumeName: string | required=true
         size: string | default=10Gi
-        mountPath: string
+        mountPath: string | required=true
       loggingSidecar:
         enabled: boolean | default=true
-        logLevel: string | default=info
+        logLevel: string | default=info enum="debug,info,warn,error"
 
   resources:
     - id: deployment

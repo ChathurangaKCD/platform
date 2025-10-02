@@ -80,25 +80,17 @@ metadata:
 
 ### 2. Schema (required)
 
-The schema defines the addon's configuration parameters, split into two categories following the ComponentDefinition model:
+The schema defines the addon's configuration parameters using Kro's [simple schema syntax](https://kro.run/docs/concepts/simple-schema/). Parameters are split into two categories:
 
 ```yaml
 schema:
   # Static parameters - cannot be overridden per environment
   parameters:
-    <parameter-name>:
-      type: <json-schema-type>
-      description: <description>
-      default: <default-value>
-      # ... other JSON Schema properties
+    <parameter-name>: <type> | <constraint>=<value>
 
   # Environment-specific overrides - can be overridden in EnvBinding
   envOverrides:
-    <parameter-name>:
-      type: <json-schema-type>
-      description: <description>
-      default: <default-value>
-      # ... other JSON Schema properties
+    <parameter-name>: <type> | <constraint>=<value>
 ```
 
 **Parameters vs EnvOverrides:**
@@ -113,60 +105,17 @@ schema:
   - Can be overridden in EnvBinding per environment
   - Allows dev→staging→prod progression with different values
 
-**Supported JSON Schema Features:**
-- All standard JSON Schema types: `string`, `number`, `integer`, `boolean`, `object`, `array`
-- Validation: `pattern`, `minimum`, `maximum`, `minLength`, `maxLength`, `enum`
-- Defaults: `default` values
-- Nested objects and arrays
-- References: `$ref` for reusable schema components
-
-**Custom Extensions:**
-- `format: textarea` - Hints UI to render multiline text input
-- `format: code` - Hints UI to render code editor
-- `format: hostname` - Hints UI to validate hostname
-- `queryContainers: true` - Instructs UI to populate dropdown from ComponentDefinition containers
-- `queryResources: {type: <ResourceType>}` - Instructs UI to populate from ComponentDefinition resources
-
 **Example:**
 ```yaml
 schema:
-  # Static configuration
   parameters:
-    volumeName:
-      type: string
-      description: "Name of the volume"
-      pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+    volumeName: string | required=true pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+    mountPath: string | required=true pattern="^/.*"
+    containerName: string | default=app queryContainers=true
 
-    mountPath:
-      type: string
-      description: "Path where volume should be mounted"
-      pattern: "^/.*"
-
-    containerName:
-      type: string
-      description: "Container to mount volume to"
-      default: "app"
-      queryContainers: true  # UI extension
-
-  # Environment-specific configuration
   envOverrides:
-    size:
-      type: string
-      description: "Volume size (e.g., 10Gi, 1Ti)"
-      pattern: "^[0-9]+[EPTGMK]i$"
-      default: "10Gi"
-
-    storageClass:
-      type: string
-      description: "Storage class name"
-      default: "standard"
-      enum: ["standard", "fast", "premium"]
-
-    accessMode:
-      type: string
-      description: "Volume access mode"
-      default: "ReadWriteOnce"
-      enum: ["ReadWriteOnce", "ReadWriteMany", "ReadOnlyMany"]
+    size: string | default=10Gi pattern="^[0-9]+[EPTGMK]i$"
+    storageClass: string | default=standard enum="standard,fast,premium"
 ```
 
 ---
@@ -400,114 +349,13 @@ validation:
 
 ### 8. UI Hints (optional)
 
-Provides hints to the UI for better rendering and UX.
+Optional hints for UI tooling. The simple schema syntax supports `queryContainers=true` and `queryResources=<ResourceType>` constraints to help UI populate dropdowns from ComponentDefinition resources.
 
 ```yaml
-ui:
-  formLayout:
-    - field: <field-name>
-      width: <full|half|third>
-      type: <input-type>
-      label: <custom-label>
-      helpText: <help-text>
-      placeholder: <placeholder>
-      queryContainers: <boolean>
-      queryResources:
-        type: <ResourceType>
-```
-
-**Form Layout Options:**
-
-Basic field:
-```yaml
-formLayout:
-  - field: volumeName
-    width: half
-    label: "Volume Name"
-    helpText: "Must be a valid DNS name"
-    placeholder: "my-volume"
-```
-
-Toggle/checkbox:
-```yaml
-formLayout:
-  - field: enabled
-    type: toggle
-    width: full
-```
-
-Select/dropdown:
-```yaml
-formLayout:
-  - field: storageClass
-    type: select
-    width: half
-```
-
-Code editor:
-```yaml
-formLayout:
-  - field: script
-    type: code-editor
-    language: bash
-    width: full
-```
-
-Dynamic container selection:
-```yaml
-formLayout:
-  - field: containerName
-    width: half
-    queryContainers: true  # Populates from ComponentDefinition
-```
-
-Dynamic resource selection:
-```yaml
-formLayout:
-  - field: ingressName
-    width: full
-    queryResources:
-      type: Ingress
-```
-
-Array fields:
-```yaml
-formLayout:
-  - field: configs
-    type: array
-    addButtonLabel: "Add Configuration"
-    itemLayout:
-      - field: name
-        width: half
-      - field: value
-        width: half
-```
-
-Nested objects:
-```yaml
-formLayout:
-  - field: resources
-    type: object
-    width: full
-    fields:
-      - field: cpu
-        width: half
-      - field: memory
-        width: half
-```
-
-**Preview Hints:**
-
-```yaml
-ui:
-  preview:
-    creates:
-      - type: PersistentVolumeClaim
-        summary: "1 PVC (${spec.size})"
-
-    modifies:
-      - type: Deployment
-        summary: "Adds volume mount to container '${spec.containerName}'"
+schema:
+  parameters:
+    containerName: string | default=app queryContainers=true
+    ingressName: string | queryResources=Ingress
 ```
 
 ---
@@ -531,31 +379,14 @@ spec:
   schema:
     # Static parameters
     parameters:
-      volumeName:
-        type: string
-        pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
-        description: "Name of the volume"
-      mountPath:
-        type: string
-        pattern: "^/.*"
-        description: "Mount path in container"
-      containerName:
-        type: string
-        default: "app"
-        description: "Container to mount to"
+      volumeName: string | required=true pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+      mountPath: string | required=true pattern="^/.*"
+      containerName: string | default=app
 
     # Environment-specific overrides
     envOverrides:
-      size:
-        type: string
-        pattern: "^[0-9]+[EPTGMK]i$"
-        default: "10Gi"
-        description: "Volume size"
-      storageClass:
-        type: string
-        default: "standard"
-        enum: ["standard", "fast", "premium"]
-        description: "Storage class"
+      size: string | default=10Gi pattern="^[0-9]+[EPTGMK]i$"
+      storageClass: string | default=standard enum="standard,fast,premium"
 
   targets:
     - resourceType: [Deployment, StatefulSet]
@@ -600,19 +431,6 @@ spec:
         expression: "int(spec.size.replace('Gi', '')) <= 1000"
         message: "Volume size cannot exceed 1000Gi"
 
-  ui:
-    formLayout:
-      - field: volumeName
-        width: half
-      - field: size
-        width: half
-      - field: storageClass
-        width: half
-      - field: containerName
-        width: half
-        queryContainers: true
-      - field: mountPath
-        width: full
 ```
 
 ---

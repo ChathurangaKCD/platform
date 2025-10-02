@@ -26,45 +26,16 @@ spec:
   schema:
     # Static parameters - same across all environments
     parameters:
-      volumeName:
-        type: string
-        description: "Name of the volume"
-        pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
-
-      mountPath:
-        type: string
-        description: "Path where volume should be mounted in container"
-        pattern: "^/.*"
-
-      containerName:
-        type: string
-        description: "Name of container to mount volume to"
-        default: "app"
-
-      subPath:
-        type: string
-        description: "SubPath within the volume"
-        default: ""
+      volumeName: string | required=true pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+      mountPath: string | required=true pattern="^/.*"
+      containerName: string | default=app
+      subPath: string | default=""
 
     # Environment-specific overrides
     envOverrides:
-      size:
-        type: string
-        description: "Volume size (e.g., 10Gi, 1Ti)"
-        pattern: "^[0-9]+[EPTGMK]i$"
-        default: "10Gi"
-
-      storageClass:
-        type: string
-        description: "Storage class name"
-        default: "standard"
-        enum: ["standard", "fast", "premium"]
-
-      accessMode:
-        type: string
-        description: "Volume access mode"
-        default: "ReadWriteOnce"
-        enum: ["ReadWriteOnce", "ReadWriteMany", "ReadOnlyMany"]
+      size: string | default=10Gi pattern="^[0-9]+[EPTGMK]i$"
+      storageClass: string | default=standard enum="standard,fast,premium"
+      accessMode: string | default=ReadWriteOnce enum="ReadWriteOnce,ReadWriteMany,ReadOnlyMany"
 
   # What this addon targets
   targets:
@@ -110,36 +81,16 @@ spec:
           mountPath: "${spec.mountPath}"
           subPath: "${spec.subPath}"
 
-  # UI hints for rendering
-  ui:
-    formLayout:
-      - field: volumeName
-        width: half
-      - field: size
-        width: half
-      - field: storageClass
-        width: half
-      - field: accessMode
-        width: half
-      - field: containerName
-        width: half
-        queryContainers: true  # UI should populate from ComponentDefinition
-      - field: mountPath
-        width: full
-      - field: mountPermissions
-        width: half
-      - field: subPath
-        width: half
 ```
 
-### Usage in UI
+### Usage
 
-When PE selects this addon:
-1. UI renders form based on schema
-2. "containerName" field shows dropdown of containers from ComponentDefinition
-3. UI shows preview: "Will create 1 PVC, modify 1 Deployment"
-4. PE fills: `volumeName: data, size: 50Gi, mountPath: /app/data, containerName: app`
-5. UI shows diff of what resources will be modified
+When PE selects this addon in ComponentType, they configure:
+- `volumeName: data`
+- `mountPath: /app/data`
+- `containerName: app` (dropdown populated from ComponentDefinition containers via `queryContainers=true`)
+- `size: 50Gi`
+- `storageClass: fast`
 
 ### Developer Experience
 
@@ -188,33 +139,15 @@ spec:
   schema:
     # Static parameters
     parameters:
-      enabled:
-        type: boolean
-        default: true
-        description: "Enable logging sidecar"
+      enabled: boolean | default=true
 
     # Environment-specific overrides
     envOverrides:
-      logLevel:
-        type: string
-        enum: ["debug", "info", "warn", "error"]
-        default: "info"
-        description: "Log level (dev might use debug, prod uses warn)"
-
-      outputDestination:
-        type: string
-        description: "Log destination endpoint"
-        default: "elasticsearch.logging.svc:9200"
-
+      logLevel: string | default=info enum="debug,info,warn,error"
+      outputDestination: string | default=elasticsearch.logging.svc:9200
       resources:
-        type: object
-        properties:
-          memory:
-            type: string
-            default: "128Mi"
-          cpu:
-            type: string
-            default: "100m"
+        memory: string | default=128Mi
+        cpu: string | default=100m
 
   targets:
     - resourceType: Deployment
@@ -254,20 +187,6 @@ spec:
         value:
           name: varlog
           emptyDir: {}
-
-  ui:
-    formLayout:
-      - field: enabled
-        width: full
-        type: toggle
-      - field: logLevel
-        width: half
-      - field: outputDestination
-        width: full
-      - field: resources.memory
-        width: half
-      - field: resources.cpu
-        width: half
 ```
 
 ---
@@ -293,44 +212,15 @@ spec:
   icon: "file-text"
 
   schema:
-    type: object
-    properties:
-      configs:
-        type: array
-        items:
-          type: object
-          properties:
-            name:
-              type: string
-              description: "Config name"
-
-            type:
-              type: string
-              enum: ["configmap", "secret"]
-              default: "configmap"
-
-            mountPath:
-              type: string
-              description: "Mount path in container"
-
-            containerName:
-              type: string
-              default: "app"
-
-            files:
-              type: array
-              description: "Files to include in ConfigMap/Secret"
-              items:
-                type: object
-                properties:
-                  fileName:
-                    type: string
-                  content:
-                    type: string
-                    format: textarea
-                required: ["fileName", "content"]
-
-          required: ["name", "type", "mountPath", "files"]
+    parameters:
+      configs: "[]object"
+        name: string | required=true
+        type: string | default=configmap enum="configmap,secret"
+        mountPath: string | required=true
+        containerName: string | default=app
+        files: "[]object"
+          fileName: string | required=true
+          content: string | required=true
 
   targets:
     - resourceType: Deployment
@@ -378,32 +268,6 @@ spec:
           name: "${item.name}"
           mountPath: "${item.mountPath}"
           readOnly: true
-
-  ui:
-    formLayout:
-      - field: configs
-        type: array
-        addButtonLabel: "Add Configuration"
-        itemLayout:
-          - field: name
-            width: half
-          - field: type
-            width: half
-          - field: containerName
-            width: half
-            queryContainers: true
-          - field: mountPath
-            width: half
-          - field: files
-            type: array
-            addButtonLabel: "Add File"
-            itemLayout:
-              - field: fileName
-                width: full
-              - field: content
-                width: full
-                type: code-editor
-                language: text
 ```
 
 ---
@@ -429,40 +293,14 @@ spec:
   icon: "shield"
 
   schema:
-    type: object
-    properties:
-      allowIngress:
-        type: array
-        description: "Allowed ingress sources"
-        items:
-          type: object
-          properties:
-            from:
-              type: string
-              description: "Source (namespace, pod selector, or CIDR)"
-            ports:
-              type: array
-              items:
-                type: integer
-
-      allowEgress:
-        type: array
-        description: "Allowed egress destinations"
-        items:
-          type: object
-          properties:
-            to:
-              type: string
-              description: "Destination (namespace, pod selector, or CIDR)"
-            ports:
-              type: array
-              items:
-                type: integer
-
-      denyAll:
-        type: boolean
-        description: "Deny all traffic except explicitly allowed"
-        default: false
+    parameters:
+      allowIngress: "[]object"
+        from: string | required=true
+        ports: "[]integer"
+      allowEgress: "[]object"
+        to: string | required=true
+        ports: "[]integer"
+      denyAll: boolean | default=false
 
   creates:
     - apiVersion: networking.k8s.io/v1
@@ -478,18 +316,6 @@ spec:
           - Egress
         ingress: "${spec.allowIngress.map(rule, {from: [parseSelector(rule.from)], ports: rule.ports.map(p, {protocol: 'TCP', port: p})})}"
         egress: "${spec.allowEgress.map(rule, {to: [parseSelector(rule.to)], ports: rule.ports.map(p, {protocol: 'TCP', port: p})})}"
-
-  ui:
-    formLayout:
-      - field: denyAll
-        type: toggle
-        width: full
-      - field: allowIngress
-        type: array
-        addButtonLabel: "Add Ingress Rule"
-      - field: allowEgress
-        type: array
-        addButtonLabel: "Add Egress Rule"
 ```
 
 ---
@@ -515,41 +341,15 @@ spec:
   icon: "cpu"
 
   schema:
-    type: object
-    properties:
-      containers:
-        type: array
-        items:
-          type: object
-          properties:
-            name:
-              type: string
-
-            requests:
-              type: object
-              properties:
-                cpu:
-                  type: string
-                  pattern: "^[0-9]+m?$"
-                  default: "100m"
-                memory:
-                  type: string
-                  pattern: "^[0-9]+[EPTGMK]i$"
-                  default: "128Mi"
-
-            limits:
-              type: object
-              properties:
-                cpu:
-                  type: string
-                  pattern: "^[0-9]+m?$"
-                  default: "500m"
-                memory:
-                  type: string
-                  pattern: "^[0-9]+[EPTGMK]i$"
-                  default: "512Mi"
-
-          required: ["name"]
+    envOverrides:
+      containers: "[]object"
+        name: string | required=true
+        requests:
+          cpu: string | default=100m pattern="^[0-9]+m?$"
+          memory: string | default=128Mi pattern="^[0-9]+[EPTGMK]i$"
+        limits:
+          cpu: string | default=500m pattern="^[0-9]+m?$"
+          memory: string | default=512Mi pattern="^[0-9]+[EPTGMK]i$"
 
   targets:
     - resourceType: Deployment
@@ -572,24 +372,6 @@ spec:
           limits:
             cpu: "${item.limits.cpu}"
             memory: "${item.limits.memory}"
-
-  ui:
-    formLayout:
-      - field: containers
-        type: array
-        addButtonLabel: "Add Container Limits"
-        itemLayout:
-          - field: name
-            width: full
-            queryContainers: true
-          - field: requests.cpu
-            width: half
-          - field: requests.memory
-            width: half
-          - field: limits.cpu
-            width: half
-          - field: limits.memory
-            width: half
 ```
 
 ---
@@ -615,23 +397,10 @@ spec:
   icon: "lock"
 
   schema:
-    type: object
-    properties:
-      issuer:
-        type: string
-        description: "cert-manager issuer name"
-        default: "letsencrypt-prod"
-
-      domains:
-        type: array
-        description: "Domain names for certificate"
-        items:
-          type: string
-          format: hostname
-
-      ingressName:
-        type: string
-        description: "Name of Ingress resource to update"
+    parameters:
+      issuer: string | default=letsencrypt-prod
+      domains: "[]string" | required=true minItems=1
+      ingressName: string | required=true queryResources=Ingress
 
   targets:
     - resourceType: Ingress
@@ -658,18 +427,6 @@ spec:
         value:
           hosts: "${spec.domains}"
           secretName: "${metadata.name}-tls-secret"
-
-  ui:
-    formLayout:
-      - field: issuer
-        width: full
-      - field: domains
-        type: array
-        addButtonLabel: "Add Domain"
-      - field: ingressName
-        width: full
-        queryResources:
-          type: Ingress
 ```
 
 ---
@@ -695,40 +452,15 @@ spec:
   icon: "play-circle"
 
   schema:
-    type: object
-    properties:
-      initContainers:
-        type: array
-        items:
-          type: object
-          properties:
-            name:
-              type: string
-
-            image:
-              type: string
-
-            command:
-              type: array
-              items:
-                type: string
-
-            args:
-              type: array
-              items:
-                type: string
-
-            volumeMounts:
-              type: array
-              items:
-                type: object
-                properties:
-                  name:
-                    type: string
-                  mountPath:
-                    type: string
-
-          required: ["name", "image"]
+    parameters:
+      initContainers: "[]object"
+        name: string | required=true
+        image: string | required=true
+        command: "[]string"
+        args: "[]string"
+        volumeMounts: "[]object"
+          name: string | required=true
+          mountPath: string | required=true
 
   targets:
     - resourceType: Deployment
@@ -747,21 +479,4 @@ spec:
           command: "${item.command}"
           args: "${item.args}"
           volumeMounts: "${item.volumeMounts}"
-
-  ui:
-    formLayout:
-      - field: initContainers
-        type: array
-        addButtonLabel: "Add Init Container"
-        itemLayout:
-          - field: name
-            width: half
-          - field: image
-            width: half
-          - field: command
-            type: array
-            addButtonLabel: "Add Command"
-          - field: args
-            type: array
-            addButtonLabel: "Add Argument"
 ```
