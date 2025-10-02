@@ -1,0 +1,123 @@
+apiVersion: platform/v1alpha1
+kind: ComponentDefinition
+metadata:
+  name: web-app
+schema:
+  classVersion: "1"
+  envOverrides:
+    maxReplicas: number | default=1
+    rollingUpdate:
+      maxSurge: number | default=1 maximum=5
+  parameters:
+    scaleToZero:
+      pendingRequests: number | maximum=100
+  resources:
+    - id: deployment
+      template: |
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: {{ .metadata.name }}
+        spec:
+          replicas: {{ .spec.maxReplicas }}
+          strategy:
+            type: RollingUpdate
+            rollingUpdate:
+              maxSurge: {{ .spec.rollingUpdate.maxSurge }}
+              maxUnavailable: 1
+          selector:
+            matchLabels:
+              app: {{ .metadata.name }}
+          template:
+            metadata:
+              labels:
+                app: {{ .metadata.name }}
+            spec:
+              containers:
+                - name: app
+                  image: {{ .build.image }}
+                  ports:
+                  {{- range .spec.endpoints }}
+                    - containerPort: {{ .port }}
+                  {{- end }}
+                - name: cloud-sql-proxy
+                  image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.8.0
+                  args:
+                    - "--structured-logs"
+                    - "--port=5432"
+                  securityContext:
+                    runAsNonRoot: true
+                  resources:
+                    requests:
+                      memory: "256Mi"
+                      cpu: "100m"
+
+    - id: service
+      template: |
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: {{ .metadata.name }}-svc
+        spec:
+          selector:
+            app: {{ .metadata.name }}
+          ports:
+          {{- range .spec.endpoints }}
+            - name: {{ .name }}
+              port: {{ .port }}
+              targetPort: {{ .port }}
+              protocol: {{ if eq .protocol "udp" }}UDP{{ else }}TCP{{ end }}
+          {{- end }}
+
+    - id: public-ingress
+      forEach: .spec.endpoints
+      filter: '{{ eq .visibility "public" }}'
+      template: |
+        apiVersion: networking.k8s.io/v1
+        kind: Ingress
+        metadata:
+          name: {{ .metadata.name }}-{{ .item.name }}
+        spec:
+          rules:
+            - host: {{ .item.host }}
+              http:
+                paths:
+                  - path: {{ .item.path }}
+                    pathType: Prefix
+                    backend:
+                      service:
+                        name: {{ .metadata.name }}-svc
+                        port:
+                          number: {{ .item.port }}
+
+    - id: http-scaler
+      template: |
+        apiVersion: http.keda.sh/v1alpha1
+        kind: HTTPScaledObject
+        metadata:
+          name: {{ .metadata.name }}
+        spec:
+          hosts:
+          {{- range .spec.endpoints }}
+          {{- if eq .visibility "public" }}
+            - {{ .host }}
+          {{- end }}
+          {{- end }}
+          pathPrefixes:
+          {{- range .spec.endpoints }}
+          {{- if eq .visibility "public" }}
+            - {{ .path }}
+          {{- end }}
+          {{- end }}
+          scaleTargetRef:
+            name: {{ .metadata.name }}
+            kind: Deployment
+            apiVersion: apps/v1
+          replicas:
+            min: {{ if gt .spec.scaleToZero.pendingRequests 0 }}0{{ else }}1{{ end }}
+            max: {{ .spec.maxReplicas }}
+          scalingMetric:
+            requestRate:
+              granularity: 1s
+              targetValue: {{ .spec.scaleToZero.pendingRequests }}
+              window: 1m
