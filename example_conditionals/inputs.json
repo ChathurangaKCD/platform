@@ -1,0 +1,33 @@
+{
+  "metadata": {
+    "name": "conditional-app"
+  },
+  "spec": {
+    "maxReplicas": 5,
+    "containers": [
+      {
+        "name": "app",
+        "image": "nginx:latest",
+        "resources": {
+          "requests": {
+            "memory": "128Mi",
+            "cpu": "100m"
+          },
+          "limits": {
+            "memory": "256Mi",
+            "cpu": "200m"
+          }
+        }
+      },
+      {
+        "name": "sidecar",
+        "image": "busybox:latest"
+      }
+    ],
+    "enableMetrics": true,
+    "enableDebug": false
+  },
+  "build": {
+    "image": "myapp:v1.0.0"
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "metadata": {
+    "name": "web-service"
+  },
+  "spec": {
+    "maxReplicas": 10,
+    "rollingUpdate": {
+      "maxSurge": 2
+    },
+    "endpoints": [
+      {
+        "name": "http",
+        "port": 8080,
+        "protocol": "tcp"
+      },
+      {
+        "name": "grpc",
+        "port": 9090,
+        "protocol": "tcp"
+      },
+      {
+        "name": "metrics",
+        "port": 9091,
+        "protocol": "tcp"
+      },
+      {
+        "name": "debug",
+        "port": 8081,
+        "protocol": "udp"
+      }
+    ],
+    "features": ["logging", "monitoring", "tracing", "caching"]
+  },
+  "build": {
+    "image": "gcr.io/my-project/web-service:v2.1.0"
+  }
+}

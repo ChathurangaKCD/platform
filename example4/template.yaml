@@ -1,0 +1,42 @@
+resources:
+  - id: deployment
+    template:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: ${metadata.name}
+      spec:
+        replicas: ${spec.maxReplicas}
+        selector:
+          matchLabels:
+            app: ${metadata.name}
+        template:
+          metadata:
+            labels:
+              app: ${metadata.name}
+          spec:
+            containers:
+              - name: app
+                image: ${build.image}
+                ports: "${spec.endpoints.map(e, {\"containerPort\": e.port})}"
+  
+  - id: service
+    template:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: ${metadata.name}-svc
+      spec:
+        selector:
+          app: ${metadata.name}
+        ports: "${spec.endpoints.map(e, {\"name\": e.name, \"port\": e.port, \"targetPort\": e.port, \"protocol\": e.protocol == \"udp\" ? \"UDP\" : \"TCP\"})}"
+        
+  - id: configmap
+    template:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: ${metadata.name}-config
+      data:
+        features-count: ${spec.features.size()}
+        feature-list: "${spec.features.map(f, \"feature-\" + f)}"

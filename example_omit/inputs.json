@@ -1,0 +1,17 @@
+{
+  "metadata": {
+    "name": "omit-test"
+  },
+  "spec": {
+    "hasDescription": false,
+    "hasReplicas": true,
+    "hasResources": false,
+    "hasAnnotations": true,
+    "hasPorts": false,
+    "replicas": 3,
+    "annotations": {
+      "app": "test",
+      "version": "1.0"
+    }
+  }
+}

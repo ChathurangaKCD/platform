@@ -1,0 +1,12 @@
+resources:
+  - id: configmap
+    template:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: ${metadata.name}-config
+      data:
+        # This will become a proper YAML array
+        features: ${spec.features.map(f, "feature-" + f)}
+        # This will become a string
+        featuresList: ${spec.features.map(f, "feature-" + f).join(",")}

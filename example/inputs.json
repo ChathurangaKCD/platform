@@ -1,0 +1,26 @@
+{
+  "metadata": {
+    "name": "my-web-app"
+  },
+  "spec": {
+    "maxReplicas": 5,
+    "endpoints": [
+      {
+        "name": "http",
+        "port": 8080,
+        "protocol": "tcp"
+      },
+      {
+        "name": "metrics",
+        "port": 9090,
+        "protocol": "tcp"
+      }
+    ],
+    "scaleToZero": {
+      "pendingRequests": 50
+    }
+  },
+  "build": {
+    "image": "gcr.io/my-project/my-web-app:v1.0.0"
+  }
+}

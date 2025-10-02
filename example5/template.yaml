@@ -1,0 +1,11 @@
+resources:
+  - id: configmap
+    template:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: ${metadata.name}-config
+      data:
+        features: |
+          ${spec.features.map(f, "feature-" + f)}
+        featuresList: ${spec.features.map(f, "feature-" + f).join(",")}

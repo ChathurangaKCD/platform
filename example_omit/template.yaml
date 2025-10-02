@@ -1,0 +1,53 @@
+resources:
+  - id: deployment
+    template:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: ${metadata.name}
+        # Test omitting string field - this field should not appear in output
+        description: |
+          ${spec.hasDescription ? "This is a test deployment" : omit()}
+        # Test omitting map field - this field should not appear in output
+        annotations: |
+          ${spec.hasAnnotations ? spec.annotations : omit()}
+      spec:
+        # Test omitting number field - this field should not appear in output
+        replicas: |
+          ${spec.hasReplicas ? spec.replicas : omit()}
+        selector:
+          matchLabels:
+            app: ${metadata.name}
+        template:
+          metadata:
+            labels:
+              app: ${metadata.name}
+          spec:
+            containers:
+              - name: app
+                image: nginx:latest
+                # Test omitting array field - this field should not appear in output
+                ports: |
+                  ${spec.hasPorts ? [{"containerPort": 8080}] : omit()}
+                # Test omitting object field - this field should not appear in output
+                resources: |
+                  ${spec.hasResources ? {"limits": {"cpu": "500m", "memory": "512Mi"}} : omit()}
+
+  - id: configmap
+    template:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: ${metadata.name}-config
+      data:
+        # Test mixing omit with regular values
+        name: ${metadata.name}
+        description: |
+          ${spec.hasDescription ? "Config for deployment" : omit()}
+        replicas: |
+          ${spec.hasReplicas ? spec.replicas : omit()}
+        # Test empty string vs omit - this should show empty string
+        emptyString: ""
+        # Test omit - this should not appear
+        omittedField: |
+          ${omit()}

@@ -1,0 +1,38 @@
+resources:
+  - id: deployment
+    template:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: ${metadata.name}
+      spec:
+        replicas: ${spec.maxReplicas}
+        selector:
+          matchLabels:
+            app: ${metadata.name}
+  
+  - id: service
+    template:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: ${metadata.name}-svc
+      spec:
+        selector:
+          app: ${metadata.name}
+        type: ClusterIP
+  
+  - id: hpa
+    template:
+      apiVersion: autoscaling/v2
+      kind: HorizontalPodAutoscaler
+      metadata:
+        name: ${metadata.name}-hpa
+      spec:
+        scaleTargetRef:
+          apiVersion: apps/v1
+          kind: Deployment
+          name: ${metadata.name}
+        minReplicas: 1
+        maxReplicas: ${spec.maxReplicas}
+        targetCPUUtilizationPercentage: ${spec.scaleToZero.pendingRequests}

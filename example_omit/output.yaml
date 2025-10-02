@@ -1,0 +1,29 @@
+resources:
+    - apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        annotations:
+            app: test
+            version: "1.0"
+        name: omit-test
+      spec:
+        replicas: 3
+        selector:
+            matchLabels:
+                app: omit-test
+        template:
+            metadata:
+                labels:
+                    app: omit-test
+            spec:
+                containers:
+                    - image: nginx:latest
+                      name: app
+    - apiVersion: v1
+      data:
+        emptyString: ""
+        name: omit-test
+        replicas: 3
+      kind: ConfigMap
+      metadata:
+        name: omit-test-config

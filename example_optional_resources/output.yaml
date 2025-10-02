@@ -1,0 +1,49 @@
+resources:
+    - apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        annotations:
+            prometheus.io/path: /metrics
+            prometheus.io/scrape: "true"
+        name: optional-demo
+      spec:
+        replicas: 2
+        selector:
+            matchLabels:
+                app: optional-demo
+        template:
+            metadata:
+                labels:
+                    app: optional-demo
+            spec:
+                containers:
+                    - image: nginx:latest
+                      name: app
+                      ports:
+                        - containerPort: 8080
+                      resources: {}
+    - apiVersion: v1
+      kind: Service
+      metadata:
+        name: optional-demo-svc
+      spec:
+        ports:
+            - name: http
+              port: 80
+              targetPort: 8080
+            - name: metrics
+              port: 9090
+              targetPort: 9090
+        selector:
+            app: optional-demo
+    - apiVersion: monitoring.coreos.com/v1
+      kind: ServiceMonitor
+      metadata:
+        name: optional-demo-monitor
+      spec:
+        endpoints:
+            - path: /metrics
+              port: metrics
+        selector:
+            matchLabels:
+                app: optional-demo

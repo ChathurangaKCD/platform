@@ -1,0 +1,68 @@
+resources:
+  - id: deployment
+    template:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: ${metadata.name}
+      spec:
+        replicas: ${spec.maxReplicas}
+        selector:
+          matchLabels:
+            app: ${metadata.name}
+        template:
+          metadata:
+            labels:
+              app: ${metadata.name}
+          spec:
+            containers: |
+              ${spec.containers.map(c, {
+                "name": c.name,
+                "image": c.image,
+                "resources": has(c.resources) ? c.resources : {},
+                "env": [
+                  {"name": "ENABLE_METRICS", "value": spec.enableMetrics ? "true" : "false"},
+                  {"name": "ENABLE_DEBUG", "value": spec.enableDebug ? "true" : "false"}
+                ],
+                "ports": c.name == "app" ? (spec.enableMetrics ? [{"containerPort": 8080}, {"containerPort": 9090}] : [{"containerPort": 8080}]) : []
+              })}
+
+  - id: service
+    template:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: ${metadata.name}-svc
+      spec:
+        selector:
+          app: ${metadata.name}
+        type: "${spec.enableDebug ? \"NodePort\" : \"ClusterIP\"}"
+        ports:
+          - port: 80
+            targetPort: 8080
+            name: http
+          - port: 9090
+            targetPort: 9090
+            name: metrics
+
+  - id: configmap
+    template:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: ${metadata.name}-config
+      data:
+        # Conditional config based on environment
+        config.yaml: |
+          application:
+            name: ${metadata.name}
+            replicas: ${spec.maxReplicas}
+            ${spec.enableMetrics ? "metrics:\\n  enabled: true\\n  port: 9090" : "# metrics disabled"}
+            ${spec.enableDebug ? "debug:\\n  enabled: true\\n  level: verbose" : "# debug disabled"}
+        
+        # Show different examples of conditional logic
+        memory-limit: "${has(spec.containers[0].resources) && has(spec.containers[0].resources.limits) ? spec.containers[0].resources.limits.memory : \"not-specified\"}"
+        cpu-limit: "${has(spec.containers[0].resources) && has(spec.containers[0].resources.limits) && has(spec.containers[0].resources.limits.cpu) ? spec.containers[0].resources.limits.cpu : \"not-specified\"}"
+        
+        # Conditional with default values  
+        default-memory: "${has(spec.containers[1].resources) && has(spec.containers[1].resources.requests) ? spec.containers[1].resources.requests.memory : \"64Mi\"}"

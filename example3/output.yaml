@@ -1,0 +1,38 @@
+resources:
+    - apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: web-service
+      spec:
+        replicas: 10
+        selector:
+            matchLabels:
+                app: web-service
+        template:
+            metadata:
+                labels:
+                    app: web-service
+            spec:
+                containers:
+                    - image: gcr.io/my-project/web-service:v2.1.0
+                      name: app
+                      ports: |
+                        [{"containerPort":8080},{"containerPort":9090},{"containerPort":9091},{"containerPort":8081}]
+    - apiVersion: v1
+      kind: Service
+      metadata:
+        name: web-service-svc
+      spec:
+        ports: |
+            [{"name":"http","port":8080,"protocol":"TCP","targetPort":8080},{"name":"grpc","port":9090,"protocol":"TCP","targetPort":9090},{"name":"metrics","port":9091,"protocol":"TCP","targetPort":9091},{"name":"debug","port":8081,"protocol":"UDP","targetPort":8081}]
+        selector:
+            app: web-service
+    - apiVersion: v1
+      data:
+        features: |
+            ["feature-logging","feature-monitoring","feature-tracing","feature-caching"]
+        featuresList: |
+            feature-logging,feature-monitoring,feature-tracing,feature-caching
+      kind: ConfigMap
+      metadata:
+        name: web-service-config

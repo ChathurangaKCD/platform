@@ -1,0 +1,15 @@
+{
+  "metadata": {
+    "name": "optional-demo"
+  },
+  "spec": {
+    "enableHPA": false,
+    "enableIngress": false,
+    "enableServiceMonitor": true,
+    "maxReplicas": 10,
+    "minReplicas": 2,
+    "targetCPU": 80,
+    "ingressHost": "example.com",
+    "metricsPath": "/metrics"
+  }
+}
