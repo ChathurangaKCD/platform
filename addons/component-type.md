@@ -38,6 +38,7 @@ spec:
   # PE-configured addons (baked into resources, hidden from devs)
   platformAddons:
     - name: persistent-volume
+      instanceId: app-data        # Required when using same addon multiple times
       config:
         # parameters (static)
         volumeName: app-data
@@ -48,7 +49,16 @@ spec:
         size: 50Gi
         storageClass: fast
 
+    - name: persistent-volume
+      instanceId: cache-data      # Different instance of same addon
+      config:
+        volumeName: cache-data
+        mountPath: /app/cache
+        size: 20Gi
+        storageClass: standard
+
     - name: network-policy
+      instanceId: default         # Always required, even for single instance
       config:
         denyAll: true
         allowIngress:
@@ -257,21 +267,30 @@ spec:
     componentName: customer-portal
   environment: production
 
-  # Override component envOverrides
+  # Override ComponentDefinition envOverrides
   overrides:
     maxReplicas: 20
 
   # Override platform addon envOverrides
   platformAddonOverrides:
-    persistentVolume:
-      size: 200Gi        # ✓ Allowed (in envOverrides)
-      storageClass: premium  # ✓ Allowed (in envOverrides)
-      # mountPath: /foo  # ✗ Not allowed (in parameters)
+    persistent-volume:     # Addon name
+      app-data:            # instanceId (multiple instances)
+        size: 200Gi        # ✓ Allowed (in envOverrides)
+        storageClass: premium
+      cache-data:          # Different instance
+        size: 100Gi
+        storageClass: fast
+        # mountPath: /foo  # ✗ Not allowed (in parameters)
+
+    network-policy:        # Single instance - still uses instanceId
+      default:             # instanceId
+        allowIngress:
+          - from: "namespace:production-gateway"
 
   # Override developer addon envOverrides
   addonOverrides:
-    loggingSidecar:
-      logLevel: warn  # Less verbose in prod
+    loggingSidecar:        # Single instance
+      logLevel: warn       # Less verbose in prod
       outputDestination: elasticsearch.prod.svc:9200
 ```
 

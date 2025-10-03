@@ -277,6 +277,64 @@ metadata:
 - **Developer-allowed addons**: ConfigMaps, logging configuration, init containers
 - **Both**: Resource limits (PE sets defaults, dev can adjust within bounds)
 
+## Multiple Instances of Same Addon
+
+ComponentTypes may need to use the same addon multiple times with different configurations.
+
+### Instance ID
+
+When using an addon more than once, use `instanceId` to differentiate instances:
+
+```yaml
+# ComponentType with multiple volume instances
+platformAddons:
+  - name: persistent-volume
+    instanceId: app-data        # Required for multiple instances
+    config:
+      volumeName: app-data
+      mountPath: /app/data
+      size: 100Gi
+
+  - name: persistent-volume
+    instanceId: cache-data      # Different instance
+    config:
+      volumeName: cache-data
+      mountPath: /app/cache
+      size: 50Gi
+
+  - name: network-policy
+    instanceId: default         # Always required, even for single instance
+    config:
+      denyAll: true
+```
+
+### EnvBinding with Instance IDs
+
+EnvBinding overrides always use instanceId as keys:
+
+```yaml
+# EnvBinding
+platformAddonOverrides:
+  persistent-volume:            # Addon name
+    app-data:                   # instanceId
+      size: 200Gi
+      storageClass: premium
+    cache-data:                 # Different instance
+      size: 100Gi
+      storageClass: fast
+
+  network-policy:               # Single instance - still uses instanceId
+    default:                    # instanceId
+      allowIngress:
+        - from: "namespace:production"
+```
+
+**Rules:**
+- `instanceId` is **always required** for all addon instances
+- Ensures consistent EnvBinding override structure
+- Prevents breaking changes when adding more instances later
+- Resource names include instanceId: `${metadata.name}-${instanceId}-resource`
+
 ## Parameters vs EnvOverrides
 
 Following the ComponentDefinition model, addons distinguish between:

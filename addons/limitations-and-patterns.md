@@ -4,74 +4,110 @@ This document describes known limitations in the addon system and patterns for w
 
 ---
 
-## Limitation 1: Multiple Instances of Same Addon
+## Pattern: Multiple Instances of Same Addon
 
-### Problem
+### Use Case
 
 A ComponentType may need multiple instances of the same addon with different configurations.
 
 **Example:**
 ```yaml
-# Want to add TWO sidecars to the same deployment
-# - Logging sidecar (fluent-bit)
-# - Metrics sidecar (prometheus-exporter)
+# Want to mount TWO persistent volumes
+# - Application data volume
+# - Cache data volume
 
-# Current limitation: can't use the same addon twice
 platformAddons:
-  - name: sidecar  # How to differentiate?
+  - name: persistent-volume
+    instanceId: app-data      # Unique identifier (required for multiple instances)
     config:
-      containerName: fluent-bit
-  - name: sidecar  # Duplicate!
+      volumeName: app-data
+      mountPath: /app/data
+      size: 100Gi
+
+  - name: persistent-volume
+    instanceId: cache-data    # Different instance
     config:
-      containerName: prometheus-exporter
+      volumeName: cache-data
+      mountPath: /app/cache
+      size: 50Gi
 ```
 
-### Solution: Instance IDs
+### Instance ID Requirements
 
-Allow addons to be instantiated multiple times with unique IDs:
+**Always required:**
+- `instanceId` is **required** for all addon instances in ComponentType
+- Ensures consistent EnvBinding override structure
+- Prevents breaking changes when adding additional instances later
 
+**Naming:**
+- Must be unique within the same addon name
+- Used as a key in EnvBinding overrides
+- Included in generated resource names
+
+**Example:**
 ```yaml
 platformAddons:
-  - name: sidecar
-    instanceId: logging  # Unique identifier
+  - name: network-policy
+    instanceId: default       # Always required
     config:
-      containerName: fluent-bit
-      image: fluent/fluent-bit:2.1
-
-  - name: sidecar
-    instanceId: metrics  # Different instance
-    config:
-      containerName: prometheus-exporter
-      image: prom/prometheus:v2.45
+      denyAll: true
 ```
 
-**Implementation notes:**
-- `instanceId` becomes part of the addon's identity
-- Resources created include instance ID: `${metadata.name}-${instanceId}-sidecar`
-- Schema merging uses instance ID: `spec.sidecar.logging.*` vs `spec.sidecar.metrics.*`
+### EnvBinding Overrides
 
-### Alternative Pattern: Specialized Addons
-
-Create separate addon definitions for common patterns:
+EnvBinding always uses instanceId as keys:
 
 ```yaml
-# Instead of generic "sidecar" addon, create:
-# - logging-sidecar addon
-# - metrics-sidecar addon
-# - custom-sidecar addon (generic)
+apiVersion: platform/v1alpha1
+kind: EnvBinding
+spec:
+  # Override platform addon envOverrides
+  platformAddonOverrides:
+    persistent-volume:        # Addon name
+      app-data:               # instanceId as key
+        size: 200Gi           # Override for this instance
+        storageClass: premium
+      cache-data:             # Different instance
+        size: 100Gi
+        storageClass: fast
 
-platformAddons:
-  - name: logging-sidecar
-    config: {...}
-  - name: metrics-sidecar
-    config: {...}
+    network-policy:           # Single instance - still uses instanceId
+      default:                # instanceId as key
+        allowIngress:
+          - from: "namespace:production-gateway"
 ```
 
-**Trade-off:** More addon definitions, but clearer intent and simpler configuration.
+**Consistent structure:**
+- Always: `platformAddonOverrides.<addonName>.<instanceId>.*`
+- No special cases for single vs multiple instances
+
+### Alternative: Specialized Addons
+
+Instead of using instanceId, create separate addon definitions:
+
+```yaml
+# Create specialized addons
+apiVersion: platform/v1alpha1
+kind: Addon
+metadata:
+  name: app-data-volume
+spec:
+  # ... specialized for app data
+
+---
+apiVersion: platform/v1alpha1
+kind: Addon
+metadata:
+  name: cache-volume
+spec:
+  # ... specialized for cache
+```
+
+**Trade-off:** More addon definitions, but simpler configuration and clearer intent.
 
 ---
 
-## Limitation 2: Targeting Runtime-Generated Resources
+## Limitation 1: Targeting Runtime-Generated Resources
 
 ### Problem
 

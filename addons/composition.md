@@ -73,6 +73,21 @@ spec:
           logLevel: info
 ```
 
+**Note:** When using the same addon multiple times, add `instanceId` to differentiate:
+```yaml
+platformAddons:
+  - name: persistent-volume
+    instanceId: app-data      # Required for multiple instances
+    config:
+      volumeName: app-data
+      mountPath: /app/data
+  - name: persistent-volume
+    instanceId: cache-data    # Different instance
+    config:
+      volumeName: cache-data
+      mountPath: /app/cache
+```
+
 #### 2. Load ComponentDefinition
 
 ```yaml
