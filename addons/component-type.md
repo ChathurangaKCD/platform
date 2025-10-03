@@ -1,56 +1,60 @@
-# ComponentType Specification
+# Component CRD Specification
 
 ## Overview
 
-A **ComponentType** is the intermediate resource that Platform Engineers create by composing a ComponentDefinition with Addons. It generates a CRD that developers use to create component instances.
+A **Component** is the single CRD that developers use to define their application components. It references a ComponentTypeDefinition and can include addon instances.
 
 ## Resource Hierarchy
 
 ```
-ComponentDefinition (PE-authored base template)
+ComponentTypeDefinition (PE-authored base template)
         +
-    Addons (PE-selected and configured)
+    Addons (PE-authored, developer-selected)
         ↓
-ComponentType (PE-composed, generates CRD)
-        ↓
-Component Instance (Developer-created)
+Component (Developer-created, kind: Component)
         +
-   EnvBinding (Per-environment overrides)
+   EnvSettings (Per-environment overrides)
         ↓
 Final K8s Resources (Deployed to cluster)
 ```
 
-## ComponentType CRD Structure
+## Component CRD Structure
 
 ```yaml
 apiVersion: platform/v1alpha1
-kind: ComponentType
+kind: Component
 metadata:
-  name: production-web-app
-  labels:
-    composedFrom: web-app  # Source ComponentDefinition
+  name: customer-portal
+  namespace: my-project
 spec:
-  # Reference to base ComponentDefinition
-  componentDefinitionRef:
-    name: web-app
-    version: "1.0"
+  # Which ComponentTypeDefinition to use
+  componentType: web-app
 
-  # PE-configured addons (baked into resources, hidden from devs)
-  platformAddons:
+  # Parameters from ComponentTypeDefinition
+  # (merged parameters + envOverrides, oneOf schema based on componentType)
+  parameters:
+    maxReplicas: 5
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+
+  # Addon instances
+  addons:
     - name: persistent-volume
-      instanceId: app-data        # Required when using same addon multiple times
+      instanceId: app-data        # Always required
       config:
         # parameters (static)
         volumeName: app-data
         mountPath: /app/data
         containerName: app
 
-        # envOverrides (can be overridden per env)
+        # envOverrides (overridable per environment)
         size: 50Gi
         storageClass: fast
 
     - name: persistent-volume
-      instanceId: cache-data      # Different instance of same addon
+      instanceId: cache-data      # Different instance
       config:
         volumeName: cache-data
         mountPath: /app/cache
@@ -58,478 +62,463 @@ spec:
         storageClass: standard
 
     - name: network-policy
-      instanceId: default         # Always required, even for single instance
+      instanceId: default         # Always required
       config:
         denyAll: true
         allowIngress:
           - from: "namespace:ingress"
             ports: [8080]
 
-  # Addons available for developers to opt-into
-  developerAddons:
-    allowed:
-      - name: config-files
-        description: "Mount ConfigMaps/Secrets"
-
-      - name: logging-sidecar
-        description: "Add logging sidecar"
-        # Optional: PE-provided defaults
-        defaults:
-          enabled: true
-          logLevel: info
-
-      - name: init-container
-        description: "Add initialization container"
-
-  # Validation rules
-  validation:
-    rules:
-      - name: replica-limit
-        expression: "spec.maxReplicas <= 20"
-        message: "maxReplicas cannot exceed 20 for this component type"
+  # Build field (added to CRD schema by platform, populated by developer)
+  build:
+    repository:
+      url: https://github.com/myorg/customer-service
+      revision:
+        branch: main
+      appPath: .
+    templateRef:
+      name: docker
+      parameters:
+        - name: docker-context
+          value: .
+        - name: dockerfile-path
+          value: ./Dockerfile
 
 status:
-  # Generated CRD details
-  generatedCRD:
-    apiVersion: platform/v1alpha1
-    kind: ProductionWebApp
-
-  # Applied platform addons
-  appliedPlatformAddons:
-    - name: persistent-volume
-      version: "1.0"
-      appliedAt: "2025-01-15T10:30:00Z"
-
-    - name: network-policy
-      version: "1.0"
-      appliedAt: "2025-01-15T10:30:00Z"
-
+  # Reconciliation status
   conditions:
     - type: Ready
       status: "True"
-      reason: "CRDGenerated"
-      message: "ComponentType is ready for use"
+      reason: "ResourcesApplied"
+      message: "All resources successfully applied"
+
+  observedGeneration: 5
+  lastReconcileTime: "2025-01-15T10:30:00Z"
 ```
 
-## Composition Process
+**Workload Metadata:**
 
-### 1. PE Creates ComponentType
+Developer defines workload metadata (endpoints, connections, etc.) in the source repository (e.g., `workload.yaml`). The platform extracts this at build time and makes it available to ComponentTypeDefinition templates via `${workload.*}`.
 
-**Via UI:**
-1. Select base ComponentDefinition: `web-app`
-2. Add platform addons:
-   - `persistent-volume` (configure: size, mount path, etc.)
-   - `network-policy` (configure: ingress rules)
-3. Select developer-allowed addons:
-   - `config-files` (allow devs to add ConfigMaps)
-   - `logging-sidecar` (allow devs to configure logging)
-4. Preview generated CRD and resources
-5. Save as `production-web-app` ComponentType
+```yaml
+# customer-portal/workload.yaml (in source repo)
+configSchemaPath: ./schemas/config.json
+endpoints:
+  - name: api
+    type: http
+    port: 8080
+    schemaPath: ./openapi/api.yaml
+  - name: grpc-endpoint
+    type: gRPC
+    port: 5050
+    schemaPath: ./proto/service.proto
 
-**Via YAML:**
+connections:
+  - name: productcatalog
+    type: api
+    params:
+      projectName: gcp-microservice-demo
+      componentName: productcatalog
+      endpoint: grpc-endpoint
+    inject:
+      env:
+        - name: PRODUCT_CATALOG_SERVICE_ADDR
+          value: "{{ .host }}:{{ .port }}"
+```
+
+## How It Works
+
+### 1. Developer Creates Component
+
+Developer creates a Component resource specifying:
+
 ```yaml
 apiVersion: platform/v1alpha1
-kind: ComponentType
+kind: Component
 metadata:
-  name: production-web-app
+  name: my-app
 spec:
-  componentDefinitionRef:
-    name: web-app
+  # Select ComponentTypeDefinition
+  componentType: web-app
 
-  platformAddons:
+  # Configure parameters from ComponentTypeDefinition
+  parameters:
+    maxReplicas: 5
+
+  # Add addon instances
+  addons:
     - name: persistent-volume
+      instanceId: app-data
       config:
         volumeName: app-data
         mountPath: /app/data
         size: 50Gi
         storageClass: fast
 
-  developerAddons:
-    allowed:
-      - name: config-files
-      - name: logging-sidecar
-        defaults:
-          enabled: true
+  build:
+    repository:
+      url: https://github.com/myorg/my-app
+      revision:
+        branch: main
 ```
 
-### 2. Controller Generates CRD
+### 2. Platform Reconciles Component
 
-The ComponentType controller:
+The controller:
 
-1. Loads `web-app` ComponentDefinition
-2. Applies `platformAddons` patches to resources
-3. Merges `developerAddons` schemas into CRD schema
-4. Generates CRD: `ProductionWebApp`
-5. Installs CRD in cluster
+1. Loads ComponentTypeDefinition (`web-app`)
+2. Loads addons specified in `spec.addons[]`
+3. Validates addon compatibility
+4. Extracts workload metadata from source repo at build time (`workload.yaml`)
+5. Applies addons to ComponentTypeDefinition resources
+6. Renders final K8s resources using Component parameters, build context, and workload metadata
+7. Applies to cluster
 
-**Generated CRD Schema:**
-```json
-{
-  "apiVersion": "platform/v1alpha1",
-  "kind": "ProductionWebApp",
-  "spec": {
-    "type": "object",
-    "properties": {
-      "buildRef": {
-        "type": "object",
-        "description": "Reference to build"
-      },
-      "endpoints": {
-        "type": "array",
-        "description": "Endpoint configurations"
-      },
+### 3. Developer Creates EnvSettings
 
-      // From ComponentDefinition
-      "maxReplicas": {
-        "type": "integer",
-        "default": 1
-      },
-      "rollingUpdate": {
-        "type": "object",
-        "properties": {
-          "maxSurge": {"type": "integer", "default": 1}
-        }
-      },
-
-      // Developer-allowed addon: config-files
-      "configFiles": {
-        "type": "object",
-        "properties": {
-          "configs": {
-            "type": "array",
-            "items": { /* ... */ }
-          }
-        }
-      },
-
-      // Developer-allowed addon: logging-sidecar
-      "loggingSidecar": {
-        "type": "object",
-        "properties": {
-          "enabled": {"type": "boolean", "default": true},
-          "logLevel": {"type": "string", "default": "info"}
-        }
-      }
-    }
-  }
-}
-```
-
-**Note:** Platform addon parameters (persistent-volume, network-policy) are NOT in the schema—they're already applied to resources.
-
-### 3. Developer Uses Generated CRD
+For environment-specific overrides:
 
 ```yaml
 apiVersion: platform/v1alpha1
-kind: ProductionWebApp  # ← Generated from ComponentType
+kind: EnvSettings
 metadata:
-  name: customer-portal
-  namespace: my-project
-spec:
-  # Component parameters
-  buildRef:
-    name: customer-portal-build
-
-  endpoints:
-    - name: api
-      port: 8080
-      visibility: public
-
-  maxReplicas: 5
-
-  # Developer-allowed addon: config-files
-  configFiles:
-    configs:
-      - name: app-config
-        type: configmap
-        mountPath: /etc/config
-        files:
-          - fileName: config.yaml
-            content: |
-              database: postgres
-              cache: redis
-
-  # Developer-allowed addon: logging-sidecar
-  loggingSidecar:
-    enabled: true
-    logLevel: debug  # Override default "info"
-```
-
-### 4. Developer Creates EnvBinding
-
-```yaml
-apiVersion: platform/v1alpha1
-kind: EnvBinding
-metadata:
-  name: customer-portal-prod
+  name: my-app-prod
 spec:
   owner:
-    componentName: customer-portal
+    componentName: my-app
   environment: production
 
-  # Override ComponentDefinition envOverrides
+  # Override component envOverrides
   overrides:
     maxReplicas: 20
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
 
-  # Override platform addon envOverrides
-  platformAddonOverrides:
-    persistent-volume:     # Addon name
-      app-data:            # instanceId (multiple instances)
-        size: 200Gi        # ✓ Allowed (in envOverrides)
-        storageClass: premium
-      cache-data:          # Different instance
-        size: 100Gi
-        storageClass: fast
-        # mountPath: /foo  # ✗ Not allowed (in parameters)
-
-    network-policy:        # Single instance - still uses instanceId
-      default:             # instanceId
-        allowIngress:
-          - from: "namespace:production-gateway"
-
-  # Override developer addon envOverrides
+  # Override addon envOverrides
   addonOverrides:
-    loggingSidecar:        # Single instance
-      logLevel: warn       # Less verbose in prod
-      outputDestination: elasticsearch.prod.svc:9200
+    persistent-volume:       # Addon name
+      app-data:              # instanceId
+        size: 200Gi          # Much larger in prod
+        storageClass: premium
 ```
 
-## Benefits of ComponentType
+## Component Schema Structure
 
-### Separation of Concerns
-- **PEs control infrastructure**: Storage, networking, security policies
-- **Developers control application**: Config, logging, app-specific settings
-- Clear boundary between platform and application
+The Component CRD has a **oneOf schema** for parameters based on `componentType`:
 
-### Reusability
-- One ComponentDefinition → many ComponentTypes
-- E.g., `web-app` → `dev-web-app`, `production-web-app`, `high-security-web-app`
-- Each with different platform addons
+```yaml
+# Component CRD schema
+spec:
+  type: object
+  properties:
+    componentType:
+      type: string
+      enum: [web-app, worker, database, ...]  # All available ComponentTypeDefinitions
 
-### Governance
-- PEs enforce policies via platform addons
-- Developers can't bypass security/networking rules
-- PEs control which addons developers can use
+    parameters:
+      # oneOf based on componentType
+      oneOf:
+        - # If componentType == "web-app"
+          properties:
+            maxReplicas:
+              type: integer
+              default: 3
+            resources:
+              type: object
+              properties:
+                requests:
+                  type: object
+                  properties:
+                    cpu:
+                      type: string
+                      default: 100m
+                    memory:
+                      type: string
+                      default: 256Mi
 
-### Developer Experience
-- Developers see simple, focused CRD
-- No clutter from infrastructure concerns
-- Type-safe, validated configuration
+        - # If componentType == "worker"
+          properties:
+            concurrency:
+              type: integer
+              default: 1
+            queueName:
+              type: string
 
-### Environment Progression
-- `envOverrides` allow environment-specific tuning
-- Dev: small volumes, debug logging
-- Prod: large volumes, warn logging, premium storage
-- Controlled via EnvBinding
+    addons:
+      type: array
+      items:
+        type: object
+        required: [name, instanceId, config]
+        properties:
+          name:
+            type: string
+          instanceId:
+            type: string
+          config:
+            type: object  # Schema varies by addon
+
+    build:
+      type: object
+      # Platform-injected, read-only for developers
+```
+
+## Developer Workload Spec
+
+Developers define application-specific metadata in the source repository (`workload.yaml`):
+
+```yaml
+# workload.yaml (in source repo)
+
+# Schema for application configuration
+configSchemaPath: ./schemas/config.json
+
+# Endpoints exposed by the application
+endpoints:
+  grpc-endpoint:
+    type: gRPC
+    port: 5050
+    schemaPath: ./proto/productcatalog_service.proto
+
+# Connections to other components
+connections:
+  productcatalog:
+    type: api
+    params:
+      projectName: gcp-microservice-demo
+      componentName: productcatalog
+      endpoint: grpc-endpoint
+    inject:
+      env:
+        - name: PRODUCT_CATALOG_SERVICE_ADDR
+          value: "{{ .host }}:{{ .port }}"
+```
+
+This metadata is extracted at build time and available to ComponentTypeDefinition templates via `${workload.*}`.
 
 ## Examples
 
-### Example 1: High-Security Web App
+### Example 1: Simple Web App
 
 ```yaml
 apiVersion: platform/v1alpha1
-kind: ComponentType
+kind: Component
 metadata:
-  name: high-security-web-app
+  name: frontend
 spec:
-  componentDefinitionRef:
-    name: web-app
+  componentType: web-app
 
-  platformAddons:
+  parameters:
+    maxReplicas: 3
+
+  addons:
     - name: network-policy
+      instanceId: default
       config:
         denyAll: true
         allowIngress:
           - from: "namespace:ingress-gateway"
-            ports: [8080]
-        allowEgress:
-          - to: "namespace:databases"
-            ports: [5432]
 
-    - name: pod-security-policy
-      config:
-        runAsNonRoot: true
-        readOnlyRootFilesystem: true
-        allowPrivilegeEscalation: false
-
-    - name: resource-limits
-      config:
-        containers:
-          - name: app
-            requests:
-              cpu: 100m
-              memory: 256Mi
-            limits:
-              cpu: 1000m
-              memory: 1Gi
-
-  developerAddons:
-    allowed:
-      - name: config-files  # Devs can add ConfigMaps only
+# Workload metadata in source repo (workload.yaml):
+# endpoints:
+#   - name: http
+#     port: 8080
 ```
 
-### Example 2: Development Web App
+### Example 2: Stateful Service with Multiple Volumes
 
 ```yaml
 apiVersion: platform/v1alpha1
-kind: ComponentType
+kind: Component
 metadata:
-  name: dev-web-app
+  name: database-proxy
 spec:
-  componentDefinitionRef:
-    name: web-app
+  componentType: web-app
 
-  platformAddons:
+  parameters:
+    maxReplicas: 3
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+
+  addons:
     - name: persistent-volume
+      instanceId: data
       config:
-        volumeName: app-data
-        mountPath: /app/data
-        size: 10Gi  # Small for dev
+        volumeName: data
+        mountPath: /var/lib/data
+        size: 100Gi
+        storageClass: premium
+
+    - name: persistent-volume
+      instanceId: logs
+      config:
+        volumeName: logs
+        mountPath: /var/log
+        size: 20Gi
         storageClass: standard
 
-  developerAddons:
-    allowed:
-      - name: config-files
-      - name: logging-sidecar
-        defaults:
-          logLevel: debug  # Verbose in dev
-      - name: init-container  # Allow custom init containers in dev
+    - name: network-policy
+      instanceId: default
+      config:
+        allowIngress:
+          - from: "namespace:application"
+            ports: [5432]
+        allowEgress:
+          - to: "namespace:database-cluster"
+            ports: [5432]
 ```
 
-### Example 3: Stateless API Service
+### Example 3: Worker with Config Files
 
 ```yaml
 apiVersion: platform/v1alpha1
-kind: ComponentType
+kind: Component
 metadata:
-  name: stateless-api
+  name: order-processor
 spec:
-  componentDefinitionRef:
-    name: web-app
+  componentType: worker
 
-  platformAddons:
-    - name: horizontal-autoscaler
+  parameters:
+    concurrency: 5
+    queueName: orders
+
+  addons:
+    - name: config-files
+      instanceId: default
       config:
-        minReplicas: 2
-        maxReplicas: 50
-        targetCPU: 70
+        configs:
+          - name: processor-config
+            type: configmap
+            mountPath: /etc/processor
+            files:
+              - fileName: config.yaml
+                content: |
+                  processing:
+                    batchSize: 100
+                    timeout: 30s
 
-    - name: service-mesh
+    - name: logging-sidecar
+      instanceId: default
       config:
         enabled: true
-        mtls: true
-
-  developerAddons:
-    allowed:
-      - name: config-files
+        logLevel: info
 ```
 
-## ComponentType Lifecycle
+## Component Lifecycle
 
 ### Creation
-1. PE defines ComponentType YAML
-2. Controller validates:
-   - ComponentDefinition exists
+
+1. Developer defines Component YAML (including build field)
+2. Platform validates:
+   - ComponentTypeDefinition exists
    - Addons exist and are compatible
-   - No conflicts between addons
-3. Controller applies platform addons
-4. Controller generates CRD schema
-5. Controller installs CRD
+   - Parameters match ComponentTypeDefinition schema
+3. Controller creates Component resource
+
+### Reconciliation
+
+1. Controller loads ComponentTypeDefinition
+2. Controller loads addons
+3. Controller loads workload metadata from source repo
+4. Controller applies addons to base resources
+5. Controller loads EnvSettings for environment
+6. Controller applies environment overrides
+7. Controller renders final K8s resources
+8. Controller applies resources to cluster
 
 ### Updates
-1. PE modifies ComponentType
-2. Controller regenerates CRD
-3. Existing Component instances validated against new schema
-4. Breaking changes require migration strategy
 
-### Versioning
-ComponentTypes should be versioned:
-```yaml
-metadata:
-  name: production-web-app-v2
-spec:
-  componentDefinitionRef:
-    name: web-app
-    version: "2.0"
-```
-
-Allows gradual migration from v1 → v2.
+1. Developer modifies Component
+2. Controller detects change
+3. Controller re-reconciles with new spec
+4. Resources updated in cluster
 
 ### Deletion
-1. PE deletes ComponentType
-2. Controller marks CRD for deletion
-3. Existing Component instances must be migrated first
-4. CRD deleted after all instances removed
 
-## Advanced Features
+1. Developer deletes Component
+2. Controller deletes all generated K8s resources
+3. Component removed
 
-### Conditional Addons
+## Environment Progression
 
-Apply addons based on conditions:
+Same component, different configurations per environment:
 
+**Development:**
 ```yaml
-platformAddons:
-  - name: persistent-volume
-    condition: "${metadata.labels.stateful == 'true'}"
-    config:
-      volumeName: data
-      mountPath: /data
-```
-
-### Addon Presets
-
-Provide multiple preset configurations:
-
-```yaml
-developerAddons:
-  allowed:
-    - name: logging-sidecar
-      presets:
-        - name: basic
-          config:
-            logLevel: info
-            resources:
-              memory: 128Mi
-
-        - name: advanced
-          config:
-            logLevel: debug
-            resources:
-              memory: 512Mi
-            plugins: [elasticsearch, kafka]
-```
-
-Developers select preset:
-```yaml
+# Component
 spec:
-  loggingSidecar:
-    preset: advanced
+  addons:
+    - name: persistent-volume
+      instanceId: data
+      config:
+        size: 10Gi
+        storageClass: standard
+
+# No EnvSettings needed
 ```
 
-### Cross-Addon Configuration
-
-Addons can reference each other:
-
+**Production:**
 ```yaml
-platformAddons:
-  - name: persistent-volume
-    config:
-      volumeName: database-data
-      mountPath: /var/lib/postgresql
+# Component (same as dev)
+spec:
+  addons:
+    - name: persistent-volume
+      instanceId: data
+      config:
+        size: 10Gi
+        storageClass: standard
 
-  - name: database-init
-    config:
-      volumeRef: database-data  # References volume addon
-      initScript: |
-        CREATE DATABASE myapp;
+# EnvSettings for production
+---
+apiVersion: platform/v1alpha1
+kind: EnvSettings
+metadata:
+  name: my-app-prod
+spec:
+  environment: production
+  addonOverrides:
+    persistent-volume:
+      data:
+        size: 200Gi
+        storageClass: premium
 ```
+
+## Benefits of This Design
+
+### 1. Simplification
+- No intermediate ComponentType resource
+- Single Component CRD for all component types
+- Developers directly express their intent
+
+### 2. Flexibility
+- Developers choose which addons to use
+- Developers configure addon parameters
+- Multiple instances of same addon supported
+
+### 3. Type Safety
+- oneOf schema ensures parameters match componentType
+- Addon configs validated against addon schemas
+- EnvSettings validated against envOverrides
+
+### 4. Environment Awareness
+- EnvSettings override only envOverrides
+- Parameters stay consistent across environments
+- Clear separation of static vs environment-specific config
+
+### 5. Platform Control
+- Platform defines Component CRD schema (including build field)
+- Platform validates addon compatibility
+- Platform enforces ComponentTypeDefinition constraints
 
 ## Summary
 
-ComponentType provides:
-1. **Composition**: Combine ComponentDefinition + Addons
-2. **Separation**: PE infrastructure addons vs developer app addons
-3. **Code Generation**: Auto-generate CRD for developers
-4. **Governance**: Enforce policies via platform addons
-5. **Flexibility**: Same base, multiple types for different needs
-6. **Environment Awareness**: EnvBinding overrides for `envOverrides`
+The Component CRD provides:
+1. **Single resource**: Developers create Component, not type-specific CRDs
+2. **Explicit composition**: Developers specify componentType and addons
+3. **Type-safe parameters**: oneOf schema based on componentType
+4. **Addon instances**: Array of addons with instanceId and config
+5. **Build integration**: build field in schema for repository and template info
+6. **Environment awareness**: EnvSettings for environment-specific overrides

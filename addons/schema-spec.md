@@ -60,21 +60,8 @@ metadata:
     version: "1.0"
 ```
 
-#### allowedFor (optional, via label)
-Who is allowed to use this addon.
-
-```yaml
-metadata:
-  labels:
-    allowedFor: platform-engineer  # Options: platform-engineer, developer, both
-```
-
-**Values:**
-- `platform-engineer`: Only PEs can configure when creating ComponentTypes (baked-in)
-- `developer`: Only developers can opt-into when creating Component instances
-- `both`: Can be used by both PEs and developers
-
-**Default:** `platform-engineer`
+#### allowedFor (deprecated)
+This label is no longer used. All addons can be used by developers when creating Component instances.
 
 ---
 
@@ -370,7 +357,6 @@ metadata:
   labels:
     category: storage
     version: "1.0"
-    allowedFor: platform-engineer  # PE-only addon
 spec:
   displayName: "Persistent Volume"
   description: "Adds persistent storage to workloads"
@@ -435,85 +421,80 @@ spec:
 
 ---
 
-## Schema Merging
+## Component Structure with Addons
 
-When addons are composed into a ComponentType, their schemas are merged into the generated CRD schema.
+When developers create Components, they specify addons in the `addons[]` array:
 
-### PE-Only Addons (Baked-In)
-PE-configured addons are applied at ComponentType creation and are NOT exposed in the developer CRD schema. The resources are modified, but developers don't see the addon parameters.
-
-### Developer-Allowed Addons
-Developer-allowed addon schemas are merged under namespaced keys in the CRD.
-
-**ComponentDefinition:**
+**ComponentTypeDefinition:**
 ```yaml
-schema:
-  parameters:
-    replicas: number | default=1
-  envOverrides:
-    maxReplicas: number | default=3
+apiVersion: platform/v1alpha1
+kind: ComponentTypeDefinition
+metadata:
+  name: web-app
+spec:
+  schema:
+    parameters:
+      replicas: number | default=1
+    envOverrides:
+      maxReplicas: number | default=3
+  resources:
+    - id: deployment
+      template:
+        # ... deployment spec
 ```
 
-**Developer-Allowed Addon:**
+**Component with Addons:**
 ```yaml
-schema:
+apiVersion: platform/v1alpha1
+kind: Component
+metadata:
+  name: customer-portal
+spec:
+  componentType: web-app
+
+  # Parameters from ComponentTypeDefinition
   parameters:
-    volumeName: string
-    mountPath: string
-  envOverrides:
-    size: string | default=10Gi
-    storageClass: string | default=standard
+    replicas: 3
+
+  # Addon instances
+  addons:
+    - name: persistent-volume
+      instanceId: app-data  # Required for all addon instances
+      config:
+        volumeName: data
+        mountPath: /app/data
+        size: 50Gi
+        storageClass: fast
+
+  # Build context (platform-injected)
+  build:
+    image: gcr.io/project/customer-portal:v1.2.3
 ```
 
-**Generated CRD Schema (for developers):**
-```json
-{
-  "spec": {
-    "properties": {
-      "replicas": {
-        "type": "integer",
-        "default": 1
-      },
-      "maxReplicas": {
-        "type": "integer",
-        "default": 3
-      },
-      "persistentVolume": {
-        "type": "object",
-        "properties": {
-          "volumeName": {"type": "string"},
-          "mountPath": {"type": "string"},
-          "size": {"type": "string", "default": "10Gi"},
-          "storageClass": {"type": "string", "default": "standard"}
-        }
-      }
-    }
-  }
-}
-```
+### EnvSettings Overrides
 
-### EnvBinding Overrides
-
-In EnvBinding, developers can override `envOverrides` from both component and addons:
+In EnvSettings, developers can override `envOverrides` from both component parameters and addon configs:
 
 ```yaml
 apiVersion: platform/v1alpha1
-kind: EnvBinding
+kind: EnvSettings
 metadata:
-  name: my-app-prod
+  name: customer-portal-prod
 spec:
+  componentRef:
+    name: customer-portal
   environment: production
 
   # Override component envOverrides
   overrides:
     maxReplicas: 10
 
-  # Override addon envOverrides (only fields from addon's envOverrides)
+  # Override addon envOverrides (keyed by instanceId)
   addonOverrides:
-    persistentVolume:
+    app-data:  # instanceId of the addon
       size: 200Gi        # ✓ Allowed (in envOverrides)
       storageClass: premium  # ✓ Allowed (in envOverrides)
       # mountPath: /foo  # ✗ Not allowed (in parameters, not envOverrides)
 ```
 
-The addon parameters are namespaced under the addon name to avoid conflicts.
+The addon overrides are keyed by `instanceId` to support multiple instances of the same addon.

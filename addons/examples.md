@@ -2,10 +2,10 @@
 
 This document provides concrete examples of different types of addons and how they work.
 
-## Example 1: Volume Addon (PE-Only)
+## Example 1: Volume Addon
 
 ### Use Case
-Platform Engineers want to provision persistent storage for workloads. This is PE-only because storage provisioning is an infrastructure concern controlled by the platform team.
+Developers want to provision persistent storage for their workloads.
 
 ### Addon Definition
 
@@ -17,7 +17,6 @@ metadata:
   labels:
     category: storage
     version: "1.0"
-    allowedFor: platform-engineer  # PE-only addon
 spec:
   displayName: "Persistent Volume"
   description: "Adds a persistent volume to your workload with configurable size, storage class, and mount path"
@@ -85,40 +84,39 @@ spec:
 
 ### Usage
 
-When PE selects this addon in ComponentType, they configure:
-- `volumeName: data`
-- `mountPath: /app/data`
-- `containerName: app` (dropdown populated from ComponentDefinition containers via `queryContainers=true`)
-- `size: 50Gi`
-- `storageClass: fast`
-
-### Developer Experience
-
-After composition, developer sees this in their CRD:
+When developer adds this addon to a Component:
 
 ```yaml
 apiVersion: platform/v1alpha1
-kind: WebAppComponent
+kind: Component
 metadata:
   name: customer-portal
 spec:
-  # ... other fields ...
+  componentType: web-app
 
-  # Volume addon parameters injected into schema
-  persistentVolume:
-    volumeName: data
-    size: 50Gi
-    storageClass: fast
-    mountPath: /app/data
-    containerName: app
+  parameters:
+    replicas: 3
+
+  addons:
+    - name: persistent-volume
+      instanceId: app-data  # Required for all addon instances
+      config:
+        volumeName: data
+        mountPath: /app/data
+        containerName: app
+        size: 50Gi
+        storageClass: fast
+
+  build:
+    image: gcr.io/project/customer-portal:v1.2.3
 ```
 
 ---
 
-## Example 2: Logging Sidecar Addon (Developer-Allowed)
+## Example 2: Logging Sidecar Addon
 
 ### Use Case
-Allow developers to configure log forwarding for their applications. This is developer-allowed because logging configuration is application-specific.
+Developers can configure log forwarding for their applications.
 
 ### Addon Definition
 
@@ -130,7 +128,6 @@ metadata:
   labels:
     category: observability
     version: "1.0"
-    allowedFor: developer  # Developers can opt-in
 spec:
   displayName: "Logging Sidecar"
   description: "Injects a Fluent Bit sidecar for log forwarding"
@@ -187,6 +184,28 @@ spec:
         value:
           name: varlog
           emptyDir: {}
+```
+
+### Usage
+
+```yaml
+apiVersion: platform/v1alpha1
+kind: Component
+metadata:
+  name: customer-portal
+spec:
+  componentType: web-app
+
+  addons:
+    - name: logging-sidecar
+      instanceId: logger
+      config:
+        enabled: true
+        logLevel: info
+        outputDestination: elasticsearch.logging.svc:9200
+
+  build:
+    image: gcr.io/project/customer-portal:v1.2.3
 ```
 
 ---
@@ -270,6 +289,35 @@ spec:
           readOnly: true
 ```
 
+### Usage
+
+```yaml
+apiVersion: platform/v1alpha1
+kind: Component
+metadata:
+  name: customer-portal
+spec:
+  componentType: web-app
+
+  addons:
+    - name: config-files
+      instanceId: app-config
+      config:
+        configs:
+          - name: app-config
+            type: configmap
+            mountPath: /etc/config
+            containerName: app
+            files:
+              - fileName: app.yaml
+                content: |
+                  server:
+                    port: 8080
+
+  build:
+    image: gcr.io/project/customer-portal:v1.2.3
+```
+
 ---
 
 ## Example 4: Network Policy Addon
@@ -316,6 +364,29 @@ spec:
           - Egress
         ingress: "${spec.allowIngress.map(rule, {from: [parseSelector(rule.from)], ports: rule.ports.map(p, {protocol: 'TCP', port: p})})}"
         egress: "${spec.allowEgress.map(rule, {to: [parseSelector(rule.to)], ports: rule.ports.map(p, {protocol: 'TCP', port: p})})}"
+```
+
+### Usage
+
+```yaml
+apiVersion: platform/v1alpha1
+kind: Component
+metadata:
+  name: customer-portal
+spec:
+  componentType: web-app
+
+  addons:
+    - name: network-policy
+      instanceId: netpol
+      config:
+        denyAll: true
+        allowIngress:
+          - from: "namespace:ingress"
+            ports: [8080]
+
+  build:
+    image: gcr.io/project/customer-portal:v1.2.3
 ```
 
 ---
@@ -374,6 +445,33 @@ spec:
             memory: "${item.limits.memory}"
 ```
 
+### Usage
+
+```yaml
+apiVersion: platform/v1alpha1
+kind: Component
+metadata:
+  name: customer-portal
+spec:
+  componentType: web-app
+
+  addons:
+    - name: resource-limits
+      instanceId: limits
+      config:
+        containers:
+          - name: app
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+
+  build:
+    image: gcr.io/project/customer-portal:v1.2.3
+```
+
 ---
 
 ## Example 6: TLS/Certificate Addon
@@ -429,6 +527,30 @@ spec:
           secretName: "${metadata.name}-tls-secret"
 ```
 
+### Usage
+
+```yaml
+apiVersion: platform/v1alpha1
+kind: Component
+metadata:
+  name: customer-portal
+spec:
+  componentType: web-app
+
+  addons:
+    - name: tls-certificate
+      instanceId: tls
+      config:
+        issuer: letsencrypt-prod
+        domains:
+          - customer.example.com
+          - www.customer.example.com
+        ingressName: main-ingress
+
+  build:
+    image: gcr.io/project/customer-portal:v1.2.3
+```
+
 ---
 
 ## Example 7: Init Container Addon
@@ -479,4 +601,31 @@ spec:
           command: "${item.command}"
           args: "${item.args}"
           volumeMounts: "${item.volumeMounts}"
+```
+
+### Usage
+
+```yaml
+apiVersion: platform/v1alpha1
+kind: Component
+metadata:
+  name: customer-portal
+spec:
+  componentType: web-app
+
+  addons:
+    - name: init-container
+      instanceId: db-migration
+      config:
+        initContainers:
+          - name: db-migrate
+            image: gcr.io/project/db-migrator:latest
+            command: ["/bin/sh"]
+            args: ["-c", "migrate up"]
+            volumeMounts:
+              - name: migrations
+                mountPath: /migrations
+
+  build:
+    image: gcr.io/project/customer-portal:v1.2.3
 ```

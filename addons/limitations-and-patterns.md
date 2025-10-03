@@ -8,7 +8,7 @@ This document describes known limitations in the addon system and patterns for w
 
 ### Use Case
 
-A ComponentType may need multiple instances of the same addon with different configurations.
+A Component may need multiple instances of the same addon with different configurations.
 
 **Example:**
 ```yaml
@@ -16,53 +16,58 @@ A ComponentType may need multiple instances of the same addon with different con
 # - Application data volume
 # - Cache data volume
 
-platformAddons:
-  - name: persistent-volume
-    instanceId: app-data      # Unique identifier (required for multiple instances)
-    config:
-      volumeName: app-data
-      mountPath: /app/data
-      size: 100Gi
+apiVersion: platform/v1alpha1
+kind: Component
+spec:
+  componentType: web-app
 
-  - name: persistent-volume
-    instanceId: cache-data    # Different instance
-    config:
-      volumeName: cache-data
-      mountPath: /app/cache
-      size: 50Gi
+  addons:
+    - name: persistent-volume
+      instanceId: app-data      # Unique identifier (always required)
+      config:
+        volumeName: app-data
+        mountPath: /app/data
+        size: 100Gi
+
+    - name: persistent-volume
+      instanceId: cache-data    # Different instance
+      config:
+        volumeName: cache-data
+        mountPath: /app/cache
+        size: 50Gi
 ```
 
 ### Instance ID Requirements
 
 **Always required:**
-- `instanceId` is **required** for all addon instances in ComponentType
-- Ensures consistent EnvBinding override structure
+- `instanceId` is **required** for all addon instances in Component
+- Ensures consistent EnvSettings override structure
 - Prevents breaking changes when adding additional instances later
 
 **Naming:**
 - Must be unique within the same addon name
-- Used as a key in EnvBinding overrides
+- Used as a key in EnvSettings overrides
 - Included in generated resource names
 
 **Example:**
 ```yaml
-platformAddons:
+addons:
   - name: network-policy
     instanceId: default       # Always required
     config:
       denyAll: true
 ```
 
-### EnvBinding Overrides
+### EnvSettings Overrides
 
-EnvBinding always uses instanceId as keys:
+EnvSettings always uses instanceId as keys:
 
 ```yaml
 apiVersion: platform/v1alpha1
-kind: EnvBinding
+kind: EnvSettings
 spec:
-  # Override platform addon envOverrides
-  platformAddonOverrides:
+  # Override addon envOverrides
+  addonOverrides:
     persistent-volume:        # Addon name
       app-data:               # instanceId as key
         size: 200Gi           # Override for this instance
@@ -78,7 +83,7 @@ spec:
 ```
 
 **Consistent structure:**
-- Always: `platformAddonOverrides.<addonName>.<instanceId>.*`
+- Always: `addonOverrides.<addonName>.<instanceId>.*`
 - No special cases for single vs multiple instances
 
 ### Alternative: Specialized Addons
@@ -111,11 +116,11 @@ spec:
 
 ### Problem
 
-Some resources are generated at runtime from dynamic sources (workload.yaml, forEach loops) and don't exist in the ComponentDefinition template at PE composition time.
+Some resources are generated at runtime from dynamic sources (workload.yaml, forEach loops) and don't exist in the ComponentTypeDefinition template.
 
 **Example 1: forEach-generated resources**
 ```yaml
-# ComponentDefinition creates multiple Ingress resources via forEach
+# ComponentTypeDefinition creates multiple Ingress resources via forEach
 resources:
   - id: public-ingress
     forEach: ${workload.endpoints.filter(e, e.visibility == "public")}
@@ -246,8 +251,9 @@ Addons may need to reference configuration or outputs from other addons.
 **Example 1: Backup addon needs volume name**
 ```yaml
 # persistent-volume addon creates a volume
-platformAddons:
+addons:
   - name: persistent-volume
+    instanceId: app-data
     config:
       volumeName: app-data
       mountPath: /app/data
@@ -255,6 +261,7 @@ platformAddons:
 # backup addon needs to know which volume to backup
 # Currently must repeat the configuration
   - name: volume-backup
+    instanceId: default
     config:
       volumeName: app-data  # Duplicate! Must match above
 ```
@@ -262,13 +269,15 @@ platformAddons:
 **Example 2: Monitoring addon needs sidecar port**
 ```yaml
 # metrics-sidecar addon exposes metrics on port 9090
-platformAddons:
+addons:
   - name: metrics-sidecar
+    instanceId: default
     config:
       port: 9090
 
 # service-monitor addon needs to scrape that port
   - name: service-monitor
+    instanceId: default
     config:
       port: 9090  # Duplicate! Must match above
 ```
@@ -341,10 +350,10 @@ spec:
                       claimName: ${addons.persistentVolume.outputs.claimName}
 ```
 
-#### Usage in ComponentType:
+#### Usage in Component:
 
 ```yaml
-platformAddons:
+addons:
   - name: persistent-volume
     instanceId: app-storage
     config:
@@ -353,6 +362,7 @@ platformAddons:
       size: 100Gi
 
   - name: volume-backup
+    instanceId: default
     config:
       # volumeName automatically resolved from persistent-volume outputs
       schedule: "0 2 * * *"

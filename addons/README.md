@@ -4,31 +4,29 @@ This directory contains the complete specification and design for the Platform a
 
 ## Overview
 
-The addon system provides a composable, plugin-based architecture that allows Platform Engineers (PEs) to create reusable component types by combining base ComponentDefinitions with Addons.
+The addon system provides a composable, plugin-based architecture that allows developers to enhance their components with reusable addons.
 
 ## Key Concepts
 
 ### Resource Hierarchy
 
 ```
-ComponentDefinition (PE-authored base template)
+ComponentTypeDefinition (base template)
         +
-    Addons (PE-selected & configured)
-        ↓
-ComponentType (Intermediate resource with generated CRD)
-        ↓
-Component Instance (Developer-created)
+Component (with addon instances)
         +
-    EnvBinding (Environment-specific overrides)
+Build Context (platform-injected)
+        ↓
+Composition Engine
         ↓
 Final K8s Resources
+        +
+EnvSettings (Environment-specific overrides)
 ```
 
-### Addon Permissions
+### Unified Addon Model
 
-- **PE-only addons** (`allowedFor: platform-engineer`): Infrastructure concerns (storage, networking, security)
-- **Developer-allowed addons** (`allowedFor: developer`): Application concerns (config, logging)
-- **Both** (`allowedFor: both`): Shared concerns (resource limits)
+All addons work the same way - developers add them directly to Component instances via the `addons[]` array. There is no distinction between platform-controlled and developer-controlled addons.
 
 ### Parameters vs EnvOverrides
 
@@ -74,42 +72,27 @@ Each example includes:
 - How it modifies resources
 - UI integration hints
 
-### [component-type.md](./component-type.md)
-**ComponentType intermediate resource specification**
-
-- ComponentType CRD structure
-- PE workflow for creating ComponentTypes
-- Platform addon vs developer-allowed addon distinction
-- Generated CRD schema
-- Developer experience
-- EnvBinding overrides
-- Lifecycle management
-- Advanced features (conditional addons, presets, cross-addon config)
+### [component-type.md](./component-type.md) [DEPRECATED]
+**This document describes the old ComponentType intermediate resource which has been removed in the simplified design.**
 
 ### [composition.md](./composition.md)
-**How addons compose with ComponentDefinitions**
+**How addons compose with ComponentTypeDefinitions**
 
-- Two-stage composition model:
-  1. PE-time: ComponentDefinition + Platform Addons → ComponentType
-  2. Runtime: Component + Developer Addons + EnvBinding → K8s Resources
+- Simplified single-stage composition model:
+  - Runtime: ComponentTypeDefinition + Component (with addons) + EnvSettings → K8s Resources
 - Step-by-step composition process
-- Schema merging algorithm
+- Parameter merging from ComponentTypeDefinition
 - Patch application logic
 - Dependency resolution
-- EnvBinding override merging
+- EnvSettings override merging
 - CEL expression evaluation
+- Build context injection
 
-### [ui-integration.md](./ui-integration.md)
+### [ui-integration.md](./ui-integration.md) [NEEDS UPDATE]
 **UI rendering and interaction design**
 
-- Platform Engineer workflow (5 screens)
-  - ComponentType builder
-  - Addon selection (platform vs developer-allowed)
-  - Addon configuration
-  - Impact preview
-  - CRD schema preview
-- Developer workflow
-- Generic form rendering from JSON Schema
+- Developer workflow for adding addons to Components
+- Generic form rendering from addon schemas
 - Smart queries (queryContainers, queryResources)
 - Impact preview logic
 - API contracts
@@ -117,91 +100,81 @@ Each example includes:
 
 ## Quick Start
 
-### For Platform Engineers
+### For Developers
 
-1. **Create a ComponentType**:
+1. **Create Component with addons**:
    ```yaml
    apiVersion: platform/v1alpha1
-   kind: ComponentType
+   kind: Component
    metadata:
-     name: production-web-app
+     name: customer-portal
    spec:
-     componentDefinitionRef:
-       name: web-app
+     componentType: web-app  # References ComponentTypeDefinition
 
-     platformAddons:
+     # Parameters from ComponentTypeDefinition
+     parameters:
+       replicas: 3
+
+     # Addon instances
+     addons:
        - name: persistent-volume
+         instanceId: app-data  # Required for all addons
          config:
            volumeName: app-data
            mountPath: /app/data
            size: 50Gi
            storageClass: fast
 
-     developerAddons:
-       allowed:
-         - name: config-files
-         - name: logging-sidecar
+       - name: config-files
+         instanceId: app-config
+         config:
+           configs:
+             - name: app-config
+               type: configmap
+               mountPath: /etc/config
+
+     # Build context (platform-injected)
+     build:
+       image: gcr.io/project/customer-portal:v1.2.3
    ```
 
-2. Controller generates a `ProductionWebApp` CRD for developers
-
-### For Developers
-
-1. **Create Component instance**:
+2. **Create EnvSettings for production**:
    ```yaml
    apiVersion: platform/v1alpha1
-   kind: ProductionWebApp
-   metadata:
-     name: customer-portal
-   spec:
-     replicas: 3
-
-     # Opt into developer-allowed addons
-     configFiles:
-       configs:
-         - name: app-config
-           type: configmap
-           mountPath: /etc/config
-   ```
-
-2. **Create EnvBinding for production**:
-   ```yaml
-   apiVersion: platform/v1alpha1
-   kind: EnvBinding
+   kind: EnvSettings
    metadata:
      name: customer-portal-prod
    spec:
+     componentRef:
+       name: customer-portal
      environment: production
 
+     # Override component envOverrides
      overrides:
        maxReplicas: 20
 
-     # Override platform addon envOverrides
-     platformAddonOverrides:
-       persistentVolume:
+     # Override addon envOverrides (keyed by instanceId)
+     addonOverrides:
+       app-data:  # instanceId of persistent-volume addon
          size: 200Gi
          storageClass: premium
-
-     # Override developer addon envOverrides
-     addonOverrides:
-       loggingSidecar:
-         logLevel: warn
    ```
 
 ## Key Design Decisions
 
-### 1. Two-Stage Composition
+### 1. Single-Stage Runtime Composition
 
-**Why**: Separate platform infrastructure concerns from application configuration
-- Stage 1 (PE): Enforce policies, provision infrastructure
-- Stage 2 (Dev): Configure application, override per environment
+**Why**: Simplified model with unified addon handling
+- No intermediate ComponentType resource
+- All addons specified directly in Component
+- Composition happens at runtime when Component is created
 
-### 2. PE-Only vs Developer-Allowed Addons
+### 2. Unified Addon Model
 
-**Why**: Clear separation of responsibilities
-- PEs control security, networking, storage (infrastructure)
-- Developers control config, logging, init containers (application)
-- Prevents developers from bypassing platform policies
+**Why**: Simpler mental model for developers
+- All addons work the same way
+- No distinction between platform-controlled and developer-controlled
+- Developers have full control over which addons to use
 
 ### 3. Parameters vs EnvOverrides
 
@@ -210,23 +183,23 @@ Each example includes:
 - `envOverrides`: Sizes, classes, log levels (vary per env)
 - Enforced at schema level, validated by controllers
 
-### 4. Generic UI Rendering
+### 4. Required instanceId for All Addons
 
-**Why**: PEs can create custom addons without frontend changes
-- All forms rendered from JSON Schema
-- UI hints (queryContainers, queryResources) for smart dropdowns
-- Impact preview computed from addon metadata
+**Why**: Support multiple instances of the same addon
+- Enables using the same addon multiple times (e.g., multiple volumes)
+- Used as key in EnvSettings addonOverrides
+- Provides clear identity for each addon instance
 
 ## Benefits
 
-1. **Separation of Concerns**: Platform vs application responsibilities
-2. **Reusability**: One ComponentDefinition → many ComponentTypes
-3. **Governance**: PEs enforce policies via platform addons
-4. **Developer Experience**: Simple CRDs, hidden complexity
-5. **Environment Awareness**: envOverrides for dev→staging→prod
-6. **Extensibility**: PEs create custom addons for org needs
-7. **UI-Friendly**: Generic rendering, no special-casing
-8. **Type Safety**: Generated CRDs with full validation
+1. **Simplicity**: Single Component CRD, no intermediate resources
+2. **Flexibility**: Developers control which addons to use
+3. **Reusability**: Addons can be used across any ComponentTypeDefinition
+4. **Developer Experience**: Clear, direct addon specification
+5. **Environment Awareness**: EnvSettings for dev→staging→prod overrides
+6. **Extensibility**: Anyone can create custom addons for their needs
+7. **Multiple Instances**: Support for multiple instances of the same addon
+8. **Runtime Composition**: All composition at runtime, no pre-baking
 
 ## Implementation Roadmap
 
@@ -267,29 +240,28 @@ Each example includes:
 
 ## FAQ
 
-**Q: Can developers bypass platform addons?**
-A: No. Platform addons are baked into resources at ComponentType creation. Developers only see the final CRD schema, which doesn't include platform addon parameters.
+**Q: How do I use multiple instances of the same addon?**
+A: Use different `instanceId` values for each addon instance in the Component's `addons[]` array.
 
 **Q: Can addons conflict with each other?**
-A: The composition engine validates addon dependencies and conflicts. PEs are warned if addons conflict, and must resolve before creating ComponentType.
+A: The composition engine validates addon dependencies and conflicts at runtime when the Component is created.
 
 **Q: How do environment-specific overrides work?**
-A: Only fields in `envOverrides` can be overridden in EnvBinding. `parameters` are immutable across environments.
+A: Only fields in `envOverrides` can be overridden in EnvSettings. `parameters` are immutable across environments. Use the addon's `instanceId` as the key in `addonOverrides`.
 
-**Q: Can PEs create custom addons?**
-A: Yes! Addons are just CRDs. PEs can define custom addons following the schema spec, and they'll automatically appear in the UI.
+**Q: Can I create custom addons?**
+A: Yes! Addons are just CRDs. You can define custom addons following the schema spec.
 
 **Q: What templating language is used?**
 A: CEL (Common Expression Language) for all dynamic values. It's type-safe, sandboxed, and supports complex expressions.
 
-**Q: How are CRDs generated?**
-A: ComponentType controller merges schemas from ComponentDefinition + developer-allowed addons, then generates and installs the CRD in the cluster.
+**Q: What happened to ComponentType?**
+A: The ComponentType intermediate resource has been removed in favor of a simpler design where developers directly create Component resources with addons.
 
 ## Related Documentation
 
-- [ComponentDefinition Spec](../component_defs/spec.md)
-- [ComponentDefinition Proposal](../component_defs/proposal.md)
-- [Project Notes](../.local/notes.txt)
+- [ComponentTypeDefinition Proposal](../component_defs/proposal.md)
+- [Platform Spec](../platform-spec.md)
 
 ## Contributing
 

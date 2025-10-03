@@ -2,36 +2,32 @@
 
 ## Overview
 
-The addon system provides a composable, plugin-based architecture that allows Platform Engineers (PEs) to augment ComponentDefinitions with reusable, cross-cutting capabilities without having to define separate CRDs for every possible variation.
+The addon system provides a composable, plugin-based architecture that allows Platform Engineers (PEs) to augment ComponentTypeDefinitions with reusable, cross-cutting capabilities without having to define separate component types for every possible variation.
 
 ## Core Concepts
 
 ### Resource Hierarchy
 
-The system has multiple layers of abstraction:
+The system has a simplified hierarchy:
 
-1. **ComponentDefinition** (PE-authored)
+1. **ComponentTypeDefinition** (PE-authored)
    - Base template with K8s resource definitions
    - Defines core component behavior
-   - Reusable across multiple component types
+   - Reusable across multiple components
 
 2. **Addon** (PE-authored)
    - Reusable augmentation units
    - Can be PE-only or developer-allowed
    - Declares `parameters` (static) and `envOverrides` (environment-specific)
 
-3. **ComponentType** (PE-composed)
-   - Intermediate resource combining ComponentDefinition + Addons
-   - Specifies which addons are baked-in (PE-only)
-   - Specifies which addons are available to developers
-   - Generates a CRD for developers to use
+3. **Component** (Developer-created, single CRD)
+   - Developers directly create Component resources
+   - Specifies `componentType` (which ComponentTypeDefinition to use)
+   - Has `parameters` (merged from ComponentTypeDefinition)
+   - Has `addons[]` array with addon instances and their configurations
+   - Has `build` field (platform-injected)
 
-4. **Component Instance** (Developer-created)
-   - Instance of a ComponentType
-   - Developers configure component + allowed addon parameters
-   - PE-baked addons are transparent to developers
-
-5. **EnvBinding** (Developer/PE-created)
+4. **EnvSettings** (Developer/PE-created)
    - Environment-specific overrides
    - Can override `envOverrides` from both component and addons
    - Cannot override `parameters` (those are static)
@@ -39,18 +35,18 @@ The system has multiple layers of abstraction:
 ### What is an Addon?
 
 An **Addon** is a reusable, composable unit that:
-- Modifies or augments existing Kubernetes resources in a ComponentDefinition
-- Adds new Kubernetes resources to a ComponentDefinition
+- Modifies or augments existing Kubernetes resources in a ComponentTypeDefinition
+- Adds new Kubernetes resources to a ComponentTypeDefinition
 - Exposes a well-defined schema with `parameters` (static) and `envOverrides` (environment-specific)
 - Declares its impact on resources (what it creates, what it modifies)
 - Can be marked as PE-only or developer-allowed
-- Can be applied to any compatible ComponentDefinition
+- Can be applied to any compatible ComponentTypeDefinition
 
 ### Design Principles
 
-1. **Composability**: Addons should compose cleanly with ComponentDefinitions and other addons
+1. **Composability**: Addons should compose cleanly with ComponentTypeDefinitions and other addons
 2. **Declarative Impact**: Addons must explicitly declare what resources they affect
-3. **Schema-Driven**: Every addon has a JSON schema defining its configuration parameters
+3. **Schema-Driven**: Every addon has a schema defining its configuration parameters
 4. **UI-Friendly**: Metadata and schemas enable generic UI rendering without special-casing
 5. **Targeting**: Addons can target specific resources by type, label, or ID
 6. **Reusability**: Both platform-provided and PE-defined addons follow the same model
@@ -59,7 +55,7 @@ An **Addon** is a reusable, composable unit that:
 ## Addon Types
 
 ### 1. Resource Modifiers
-Modify existing resources in a ComponentDefinition:
+Modify existing resources in a ComponentTypeDefinition:
 - Add volumes to Deployments/StatefulSets
 - Inject sidecars into containers
 - Add init containers
@@ -67,7 +63,7 @@ Modify existing resources in a ComponentDefinition:
 - Add environment variables or config mounts
 
 ### 2. Resource Creators
-Create new resources alongside the ComponentDefinition:
+Create new resources alongside the ComponentTypeDefinition:
 - PersistentVolumeClaims
 - Secrets
 - ConfigMaps
@@ -88,41 +84,9 @@ Both create new resources AND modify existing ones:
 │                  Platform Engineer Workflow                  │
 ├─────────────────────────────────────────────────────────────┤
 │                                                               │
-│  1. Select ComponentDefinition (base template)               │
-│  2. Select PE-only Addons (baked into ComponentType)        │
-│  3. Configure PE-only addons                                 │
-│  4. Select developer-allowed Addons (optional for devs)      │
-│  5. Set defaults for developer-allowed addons                │
-│  6. Preview rendered K8s resources                           │
-│  7. Register as ComponentType for developers                 │
-│                                                               │
-└─────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│               Composition Engine                             │
-├─────────────────────────────────────────────────────────────┤
-│                                                               │
-│  1. Load ComponentDefinition                                 │
-│  2. Load PE-only Addons + configurations                     │
-│  3. Apply PE-only addons (baked in)                          │
-│  4. Generate CRD schema with:                                │
-│     - Component parameters + envOverrides                    │
-│     - Developer-allowed addon parameters + envOverrides      │
-│  5. Generate resource templates with PE addon patches        │
-│  6. Create ComponentType resource                            │
-│                                                               │
-└─────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│                      ComponentType                           │
-├─────────────────────────────────────────────────────────────┤
-│                                                               │
-│  • CRD Schema (for developers)                               │
-│  • Resource Templates (with PE addons applied)               │
-│  • Developer-allowed addons list                             │
-│  • Validation Rules                                          │
+│  1. Define ComponentTypeDefinition (base template)           │
+│  2. Define Addons (reusable units)                           │
+│  3. Publish ComponentTypeDefinitions for developers          │
 │                                                               │
 └─────────────────────────────────────────────────────────────┘
                             │
@@ -131,12 +95,13 @@ Both create new resources AND modify existing ones:
 │                  Developer Workflow                          │
 ├─────────────────────────────────────────────────────────────┤
 │                                                               │
-│  1. Select ComponentType (e.g., ProductionWebApp)            │
-│  2. Configure component parameters                           │
-│  3. Opt into developer-allowed addons                        │
-│  4. Configure allowed addon parameters                       │
-│  5. Create Component instance                                │
-│  6. Create EnvBinding per environment                        │
+│  1. Create Component resource (kind: Component)              │
+│  2. Specify componentType (which ComponentTypeDefinition)    │
+│  3. Configure parameters (from ComponentTypeDefinition)      │
+│  4. Add addon instances to addons[] array                    │
+│  5. Configure each addon's parameters                        │
+│  6. Provide build field with repository and template info    │
+│  7. Create EnvSettings per environment                       │
 │     - Override envOverrides from component                   │
 │     - Override envOverrides from addons                      │
 │                                                               │
@@ -148,12 +113,13 @@ Both create new resources AND modify existing ones:
 ├─────────────────────────────────────────────────────────────┤
 │                                                               │
 │  1. Load Component instance                                  │
-│  2. Load ComponentType                                       │
-│  3. Apply developer-configured addons                        │
-│  4. Load EnvBinding for target environment                   │
-│  5. Apply environment overrides                              │
-│  6. Render final K8s resources                               │
-│  7. Apply to cluster                                         │
+│  2. Load ComponentTypeDefinition                             │
+│  3. Load workload metadata from source repo                  │
+│  4. Apply addon instances from Component.spec.addons[]       │
+│  5. Load EnvSettings for target environment                  │
+│  6. Apply environment overrides                              │
+│  7. Render final K8s resources                               │
+│  8. Apply to cluster                                         │
 │                                                               │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -164,54 +130,81 @@ Both create new resources AND modify existing ones:
 
 Each addon is defined as a CRD with:
 - **Metadata**: Name, description, category, compatibility rules
-- **Schema**: Configuration parameters (JSON Schema)
-- **Resource Targets**: Which resources in the ComponentDefinition it affects
+- **Schema**: Configuration parameters using Kro's Simple Schema
+- **Resource Targets**: Which resources in the ComponentTypeDefinition it affects
 - **Patches**: How it modifies existing resources
 - **Resources**: New resources it creates
 
 ### 2. Composition Process
 
-When a PE selects a ComponentDefinition + Addons:
+When a developer creates a Component with addons:
 
-1. **Schema Merging**: Addon schemas are merged into the component CRD schema
-2. **Resource Augmentation**: Addon patches are applied to existing resources
-3. **Resource Addition**: New resources from addons are added to the template
-4. **Validation**: Ensure no conflicts between addons
-5. **Generation**: Output final ComponentDefinition with addons baked in
+1. **Load ComponentTypeDefinition**: Get base template with resource definitions
+2. **Load Addons**: Get addon definitions specified in `spec.addons[]`
+3. **Apply Addon Patches**: Addon patches are applied to existing resources
+4. **Add Addon Resources**: New resources from addons are added to the template
+5. **Validate**: Ensure no conflicts between addons
+6. **Render**: Output final K8s resources
 
 ### 3. Developer Experience
 
-Developers interact with ComponentTypes:
-- See a single CRD generated from ComponentType
-- CRD includes:
-  - Component `parameters` and `envOverrides`
-  - Developer-allowed addon `parameters` and `envOverrides`
-- PE-baked addons are transparent (already applied to resources)
-- Can opt into developer-allowed addons
-- Can override `envOverrides` per environment in EnvBinding
+Developers create Component resources directly:
+- Specify `componentType` field (which ComponentTypeDefinition to use)
+- Configure `parameters` from the ComponentTypeDefinition
+- Add `addons[]` array with addon instances:
+  - Each addon has `name`, `instanceId`, and `config`
+  - `instanceId` required to differentiate multiple instances of same addon
+- Provide `build` field with repository and template information
+- Can override `envOverrides` per environment in EnvSettings
 - Cannot override `parameters` (those are static)
 
 ### 4. Platform Engineer Experience
 
-PEs create ComponentTypes by composing ComponentDefinition + Addons:
+PEs define ComponentTypeDefinitions and Addons:
 
-**Via CLI:**
-```bash
-oc component-type create production-web-app \
-  --definition web-app \
-  --platform-addons persistent-volume,network-policy \
-  --developer-addons config-files,logging-sidecar
+**ComponentTypeDefinition (via YAML):**
+```yaml
+apiVersion: platform/v1alpha1
+kind: ComponentTypeDefinition
+metadata:
+  name: web-app
+spec:
+  schema:
+    parameters:
+      appType: string | default=stateless
+    envOverrides:
+      maxReplicas: integer | default=3
+  resources:
+    - id: deployment
+      template:
+        apiVersion: apps/v1
+        kind: Deployment
+        # ... deployment spec
 ```
 
-**Via UI:**
-- Visual builder with addon categorization
-- Mark addons as "PE-only" or "Developer-allowed"
-- Configure PE-only addons (baked into ComponentType)
-- Set defaults for developer-allowed addons
-
-**Via YAML:**
-- Direct ComponentType resource definition
-- Git-based workflow for version control
+**Addons (via YAML):**
+```yaml
+apiVersion: platform/v1alpha1
+kind: Addon
+metadata:
+  name: persistent-volume
+spec:
+  displayName: "Persistent Volume"
+  schema:
+    parameters:
+      volumeName: string | required=true
+      mountPath: string | required=true
+    envOverrides:
+      size: string | default=10Gi
+  creates:
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      # ... PVC spec
+  patches:
+    - target:
+        resourceType: Deployment
+      # ... patches
+```
 
 ## Addon Targeting
 
@@ -279,75 +272,102 @@ metadata:
 
 ## Multiple Instances of Same Addon
 
-ComponentTypes may need to use the same addon multiple times with different configurations.
+Components may need to use the same addon multiple times with different configurations.
 
 ### Instance ID
 
-When using an addon more than once, use `instanceId` to differentiate instances:
+`instanceId` is **always required** for all addon instances to ensure consistent structure:
 
 ```yaml
-# ComponentType with multiple volume instances
-platformAddons:
-  - name: persistent-volume
-    instanceId: app-data        # Required for multiple instances
-    config:
-      volumeName: app-data
-      mountPath: /app/data
-      size: 100Gi
+# Component with multiple volume instances
+apiVersion: platform/v1alpha1
+kind: Component
+metadata:
+  name: my-app
+spec:
+  componentType: web-app
 
-  - name: persistent-volume
-    instanceId: cache-data      # Different instance
-    config:
-      volumeName: cache-data
-      mountPath: /app/cache
-      size: 50Gi
+  parameters:
+    maxReplicas: 3
 
-  - name: network-policy
-    instanceId: default         # Always required, even for single instance
-    config:
-      denyAll: true
+  addons:
+    - name: persistent-volume
+      instanceId: app-data        # Always required
+      config:
+        volumeName: app-data
+        mountPath: /app/data
+        size: 100Gi
+
+    - name: persistent-volume
+      instanceId: cache-data      # Different instance
+      config:
+        volumeName: cache-data
+        mountPath: /app/cache
+        size: 50Gi
+
+    - name: network-policy
+      instanceId: default         # Always required, even for single instance
+      config:
+        denyAll: true
+
+  build:
+    # Platform-injected
 ```
 
-### EnvBinding with Instance IDs
+### EnvSettings with Instance IDs
 
-EnvBinding overrides always use instanceId as keys:
+EnvSettings overrides always use instanceId as keys:
 
 ```yaml
-# EnvBinding
-platformAddonOverrides:
-  persistent-volume:            # Addon name
-    app-data:                   # instanceId
-      size: 200Gi
-      storageClass: premium
-    cache-data:                 # Different instance
-      size: 100Gi
-      storageClass: fast
+# EnvSettings
+apiVersion: platform/v1alpha1
+kind: EnvSettings
+metadata:
+  name: my-app-prod
+spec:
+  owner:
+    componentName: my-app
+  environment: production
 
-  network-policy:               # Single instance - still uses instanceId
-    default:                    # instanceId
-      allowIngress:
-        - from: "namespace:production"
+  # Override component envOverrides
+  overrides:
+    maxReplicas: 20
+
+  # Override addon envOverrides
+  addonOverrides:
+    persistent-volume:            # Addon name
+      app-data:                   # instanceId
+        size: 200Gi
+        storageClass: premium
+      cache-data:                 # Different instance
+        size: 100Gi
+        storageClass: fast
+
+    network-policy:               # Single instance - still uses instanceId
+      default:                    # instanceId
+        allowIngress:
+          - from: "namespace:production"
 ```
 
 **Rules:**
 - `instanceId` is **always required** for all addon instances
-- Ensures consistent EnvBinding override structure
+- Ensures consistent EnvSettings override structure
 - Prevents breaking changes when adding more instances later
 - Resource names include instanceId: `${metadata.name}-${instanceId}-resource`
 
 ## Parameters vs EnvOverrides
 
-Following the ComponentDefinition model, addons distinguish between:
+Following the ComponentTypeDefinition model, addons distinguish between:
 
 ### Parameters (Static)
 - Set once at component creation
 - Same across all environments
-- Cannot be overridden in EnvBinding
+- Cannot be overridden in EnvSettings
 - Examples: volume mount paths, container names, addon behavior toggles
 
 ### EnvOverrides (Environment-specific)
 - Can differ per environment
-- Overridable in EnvBinding
+- Overridable in EnvSettings
 - Examples: storage size, storage class, replica counts, resource limits
 
 ```yaml
@@ -364,11 +384,11 @@ schema:
 
 ## Benefits
 
-1. **Separation of Concerns**: PEs control infrastructure/security, devs control application config
-2. **Reusability**: Define addons once, use across many component types
-3. **Maintainability**: Update addon once, all components benefit
-4. **Discoverability**: UI can list all available addons with permissions
-5. **Flexibility**: PEs create custom addons, control who can use them
-6. **Developer Simplicity**: Devs get simple CRD with only relevant addons
-7. **Governance**: Platform team controls infrastructure addons, devs control app config
-8. **Environment Awareness**: `envOverrides` allow environment-specific tuning
+1. **Simplified Architecture**: Single Component CRD, no intermediate resources
+2. **Separation of Concerns**: PEs define ComponentTypeDefinitions and Addons, devs compose them
+3. **Reusability**: Define addons once, use across many components
+4. **Maintainability**: Update addon once, all components using it benefit
+5. **Discoverability**: UI can list all available addons and ComponentTypeDefinitions
+6. **Flexibility**: PEs create custom ComponentTypeDefinitions and addons for org needs
+7. **Developer Control**: Developers explicitly choose and configure addons per component
+8. **Environment Awareness**: `envOverrides` allow environment-specific tuning via EnvSettings

@@ -1,98 +1,90 @@
-# Addon Composition with ComponentDefinitions
+# Addon Composition with ComponentTypeDefinitions
 
-This document describes how addons are composed with ComponentDefinitions to create ComponentTypes and Component instances.
+This document describes how addons are composed with ComponentTypeDefinitions to create Component instances.
 
-## Two-Stage Composition
+## Simplified Composition Model
 
-The system uses a two-stage composition model:
+The system uses a single-stage composition model at runtime:
 
-### Stage 1: ComponentType Creation (PE-time)
+### Component Creation (Runtime)
 
-Platform Engineer composes ComponentDefinition + Platform Addons → ComponentType
+Developer creates Component instance (kind: Component) which references a ComponentTypeDefinition. The controller composes the final resources by applying addons from both the Component spec and the build context.
 
-### Stage 2: Component Instance Creation (Runtime)
-
-Developer creates Component instance from ComponentType + Developer Addons
-
-## Stage 1: Creating ComponentType
+## Creating Components with Addons
 
 ### High-Level Flow
 
 ```
-ComponentDefinition
+ComponentTypeDefinition (base template)
         +
-Platform Addons (PE-configured)
+Component (with addon instances)
         +
-Developer Addon Allowlist
+Build Context (platform-injected)
         ↓
 Composition Engine
         ↓
-  ┌─────┴─────┐
-  │           │
-  ▼           ▼
-CRD Schema  Resource Templates (with platform addon patches applied)
-        ↓
-  ComponentType
+Final K8s Resources (with all addons applied)
 ```
 
 ### Step-by-Step Process
 
-#### 1. PE Defines ComponentType
+#### 1. Developer Defines Component
 
 ```yaml
 apiVersion: platform/v1alpha1
-kind: ComponentType
+kind: Component
 metadata:
-  name: production-web-app
+  name: customer-portal
 spec:
-  componentDefinitionRef:
-    name: web-app
+  componentType: web-app  # References ComponentTypeDefinition
 
-  # PE-only addons (baked in)
-  platformAddons:
+  # Merged parameters from ComponentTypeDefinition
+  parameters:
+    replicas: 3
+
+  # Addon instances
+  addons:
     - name: persistent-volume
+      instanceId: app-data  # Required for all addon instances
       config:
         volumeName: app-data
         mountPath: /app/data
         size: 50Gi
         storageClass: fast
 
-    - name: network-policy
+    - name: config-files
+      instanceId: app-config
       config:
-        denyAll: true
-        allowIngress:
-          - from: "namespace:ingress"
+        configs:
+          - name: app-config
+            type: configmap
+            mountPath: /etc/config
 
-  # Developer-allowed addons
-  developerAddons:
-    allowed:
-      - name: config-files
-      - name: logging-sidecar
-        defaults:
-          enabled: true
-          logLevel: info
+  # Build field is platform-injected
+  build:
+    image: gcr.io/project/customer-portal:v1.2.3
 ```
 
-**Note:** When using the same addon multiple times, add `instanceId` to differentiate:
+**Note:** All addon instances require an `instanceId` to support multiple instances of the same addon:
 ```yaml
-platformAddons:
+addons:
   - name: persistent-volume
-    instanceId: app-data      # Required for multiple instances
+    instanceId: app-data
     config:
       volumeName: app-data
       mountPath: /app/data
   - name: persistent-volume
-    instanceId: cache-data    # Different instance
+    instanceId: cache-data
     config:
       volumeName: cache-data
       mountPath: /app/cache
 ```
 
-#### 2. Load ComponentDefinition
+#### 2. Load ComponentTypeDefinition
 
 ```yaml
 apiVersion: platform/v1alpha1
-kind: ComponentDefinition
+kind: ComponentTypeDefinition
 metadata:
   name: web-app
 spec:
@@ -109,12 +101,12 @@ spec:
         # ... deployment spec
 ```
 
-#### 3. Load Platform Addons
+#### 3. Load Addon Definitions
 
-Load addons specified in `platformAddons`:
+Load addons specified in Component's `addons[]` array:
 
-- `persistent-volume` (PE-only, allowedFor: platform-engineer)
-- `network-policy` (PE-only, allowedFor: platform-engineer)
+- `persistent-volume`
+- `config-files`
 
 #### 4. Validate Compatibility
 
@@ -172,23 +164,25 @@ function validateCompatibility(componentDef, addons) {
 }
 ```
 
-#### 5. Apply Platform Addons to Resources
+#### 5. Apply Addons to Resources
 
-Platform addons are applied to resources immediately:
+All addons from the Component's `addons[]` array are applied to resources at runtime:
 
 ```javascript
-function applyPlatformAddons(componentDef, platformAddons, configs) {
-  let resources = cloneDeep(componentDef.spec.resources);
+function applyAddons(componentTypeDef, component, addons) {
+  let resources = cloneDeep(componentTypeDef.spec.resources);
   const newResources = [];
 
-  platformAddons.forEach((addon) => {
-    const config = configs[addon.name];
+  addons.forEach((addonInstance) => {
+    const addon = loadAddon(addonInstance.name);
+    const config = addonInstance.config;
 
     // Create new resources
     addon.spec.creates?.forEach((createSpec) => {
       const resource = renderTemplate(createSpec, {
-        metadata: config.metadata,
+        metadata: component.metadata,
         spec: config,
+        build: component.spec.build,
       });
       newResources.push(resource);
     });
@@ -205,165 +199,48 @@ function applyPlatformAddons(componentDef, platformAddons, configs) {
 }
 ```
 
-**Result**: Resources now include volume mounts, network policies, etc.
+**Result**: Resources now include volume mounts, config files, etc.
 
-#### 6. Merge Developer Addon Schemas
-
-Only developer-allowed addon schemas are merged into the CRD:
-
-```javascript
-function mergeDeveloperAddonSchemas(componentDef, developerAddons) {
-  const baseSchema = componentDef.spec.schema;
-  const mergedSchema = cloneDeep(baseSchema);
-
-  // Platform addon schemas are NOT included (already applied to resources)
-
-  // Add each developer-allowed addon's schema
-  developerAddons.allowed.forEach((addonRef) => {
-    const addon = loadAddon(addonRef.name);
-    const addonKey = camelCase(addon.metadata.name);
-
-    mergedSchema.properties[addonKey] = {
-      type: "object",
-      description: addon.spec.description,
-      properties: {
-        ...addon.spec.schema.parameters,
-        ...addon.spec.schema.envOverrides,
-      },
-    };
-  });
-
-  return mergedSchema;
-}
-```
-
-**Example Result (CRD schema exposed to developers):**
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "replicas": {
-      "type": "number",
-      "default": 1
-    },
-    "maxReplicas": {
-      "type": "number",
-      "default": 3
-    },
-
-    // Developer-allowed addons only
-    "configFiles": {
-      "type": "object",
-      "description": "Mount ConfigMaps/Secrets",
-      "properties": {
-        "configs": { "type": "array" }
-      }
-    },
-    "loggingSidecar": {
-      "type": "object",
-      "description": "Logging sidecar",
-      "properties": {
-        "enabled": { "type": "boolean", "default": true },
-        "logLevel": { "type": "string", "default": "info" }
-      }
-    }
-  }
-}
-```
-
-Note: `persistentVolume` and `networkPolicy` (platform addons) are NOT in the schema.
-
-#### 7. Generate ComponentType
-
-The composition engine creates the ComponentType resource:
-
-```yaml
-apiVersion: platform/v1alpha1
-kind: ComponentType
-metadata:
-  name: production-web-app
-spec:
-  # ... original spec ...
-
-status:
-  generatedCRD:
-    apiVersion: platform/v1alpha1
-    kind: ProductionWebApp
-  appliedPlatformAddons:
-    - name: persistent-volume
-      version: "1.0"
-    - name: network-policy
-      version: "1.0"
-  conditions:
-    - type: Ready
-      status: "True"
-```
-
----
-
-## Stage 2: Component Instance Creation
-
-When developer creates a Component instance:
-
-```yaml
-apiVersion: platform/v1alpha1
-kind: ProductionWebApp
-metadata:
-  name: customer-portal
-spec:
-  replicas: 3
-  maxReplicas: 10
-
-  # Developer-allowed addons
-  configFiles:
-    configs:
-      - name: app-config
-        type: configmap
-        mountPath: /etc/config
-
-  loggingSidecar:
-    enabled: true
-    logLevel: debug
-```
+#### 6. Render Final Resources
 
 The controller:
 
-1. Loads ComponentType
-2. Starts with resources that already have platform addons applied
-3. Applies developer-configured addons (config-files, logging-sidecar)
-4. Renders final K8s resources
-5. Applies to cluster
+1. Loads ComponentTypeDefinition
+2. Starts with base resources from ComponentTypeDefinition
+3. Applies all addon instances from Component's `addons[]` array
+4. Merges parameters from Component spec
+5. Injects build context from platform
+6. Renders final K8s resources
+7. Applies to cluster
 
 ---
 
-## EnvBinding Overrides
+## EnvSettings Overrides
 
 When deploying to production environment:
 
 ```yaml
 apiVersion: platform/v1alpha1
-kind: EnvBinding
+kind: EnvSettings
 metadata:
   name: customer-portal-prod
 spec:
+  componentRef:
+    name: customer-portal
   environment: production
 
   # Override component envOverrides
   overrides:
     maxReplicas: 20
 
-  # Override platform addon envOverrides
-  platformAddonOverrides:
-    persistentVolume:
+  # Override addon envOverrides (unified under addonOverrides)
+  addonOverrides:
+    app-data:  # instanceId of the addon
       size: 200Gi
       storageClass: premium
 
-  # Override developer addon envOverrides
-  addonOverrides:
-    loggingSidecar:
-      logLevel: warn
-      outputDestination: elasticsearch.prod.svc:9200
+    app-config:  # instanceId of the addon
+      # config-specific overrides
 ```
 
 The controller merges these overrides when rendering resources for the production environment.
@@ -372,25 +249,21 @@ The controller merges these overrides when rendering resources for the productio
 
 ## Summary
 
-The two-stage composition model provides:
+The simplified composition model provides:
 
-1. **Stage 1 (PE-time)**: ComponentDefinition + Platform Addons → ComponentType
-
-   - Platform addons baked into resources
-   - Only developer-allowed addons in CRD schema
-   - Generates CRD for developers
-
-2. **Stage 2 (Runtime)**: Component Instance + Developer Addons + EnvBinding
-   - Developer configures allowed addons
-   - EnvBinding overrides `envOverrides` per environment
+1. **Runtime Composition**: ComponentTypeDefinition + Component (with addons) + EnvSettings
+   - All addons specified in Component's `addons[]` array
+   - No intermediate ComponentType resource
+   - Addons applied at runtime when Component is created
+   - EnvSettings overrides `envOverrides` per environment
    - Final resources deployed to cluster
 
-This separation ensures:
+This simplified approach ensures:
 
-- **Platform control**: PEs enforce infrastructure policies
-- **Developer flexibility**: Devs configure application concerns
-- **Environment awareness**: Different configs per environment
-- **Clear boundaries**: Platform vs application responsibilities
+- **Unified addon model**: All addons work the same way
+- **Developer control**: Developers add addons directly to Component
+- **Environment awareness**: Different configs per environment via EnvSettings
+- **Flexibility**: No pre-baked configurations, all composition at runtime
 
 ---
 
@@ -485,141 +358,94 @@ function applyPatchToTargets(resources, patchSpec, config, item = null) {
 }
 ```
 
-#### 6. Generate Final ComponentDefinition
+#### 6. Generate Final Resources
 
-Create a new ComponentDefinition with addons baked in:
+The composition engine creates final Kubernetes resources:
 
 ```yaml
-apiVersion: platform/v1alpha1
-kind: ComponentDefinition
+# Deployment with addons applied
+apiVersion: apps/v1
+kind: Deployment
 metadata:
-  name: web-app-with-storage
-  labels:
-    composedFrom: web-app
-    addons: persistent-volume,tls-certificate
+  name: customer-portal
 spec:
-  schema:
-    # Merged schema from step 4
-    parameters:
-      replicas: integer | default=1
-      persistentVolume:
-        volumeName: string | required=true
-        size: string | default=10Gi
-      tlsCertificate:
-        issuer: string | default=letsencrypt-prod
-        domains: "[]string" | required=true
+  replicas: 3
+  template:
+    spec:
+      containers:
+        - name: app
+          image: gcr.io/project/customer-portal:v1.2.3
+          volumeMounts: # ← Added by persistent-volume addon
+            - name: app-data
+              mountPath: /app/data
+            - name: app-config
+              mountPath: /etc/config
+      volumes: # ← Added by addons
+        - name: app-data
+          persistentVolumeClaim:
+            claimName: customer-portal-app-data
+        - name: app-config
+          configMap:
+            name: customer-portal-app-config
 
+# New resources created by addons
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: customer-portal-app-data
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: fast
   resources:
-    # Original resources from ComponentDefinition
-    - id: deployment
-      template:
-        apiVersion: apps/v1
-        kind: Deployment
-        metadata:
-          name: ${metadata.name}
-        spec:
-          template:
-            spec:
-              containers:
-                - name: app
-                  # ... original container spec
-                  volumeMounts: # ← Added by persistent-volume addon
-                    - name: ${spec.persistentVolume.volumeName}
-                      mountPath: ${spec.persistentVolume.mountPath}
-              volumes: # ← Added by persistent-volume addon
-                - name: ${spec.persistentVolume.volumeName}
-                  persistentVolumeClaim:
-                    claimName: ${metadata.name}-${spec.persistentVolume.volumeName}
-
-    # New resources created by addons
-    - id: data-pvc # ← Added by persistent-volume addon
-      template:
-        apiVersion: v1
-        kind: PersistentVolumeClaim
-        metadata:
-          name: ${metadata.name}-${spec.persistentVolume.volumeName}
-        spec:
-          accessModes: [ReadWriteOnce]
-          storageClassName: ${spec.persistentVolume.storageClass}
-          resources:
-            requests:
-              storage: ${spec.persistentVolume.size}
-
-    - id: tls-cert # ← Added by tls-certificate addon
-      template:
-        apiVersion: cert-manager.io/v1
-        kind: Certificate
-        # ... certificate spec
-```
+    requests:
+      storage: 50Gi
 
 ---
-
-## Composition Strategies
-
-### Strategy 1: Bake-In (Recommended for PE Templates)
-
-Addons are composed at **component type creation time** and the result is saved as a new ComponentDefinition.
-
-**Pros:**
-
-- Simple for developers (no addon awareness)
-- Stable, validated configuration
-- Performance (no runtime composition)
-
-**Cons:**
-
-- Less flexible (can't toggle addons per instance)
-- Proliferation of component types
-
-**Use Case:** Platform Engineer creating reusable templates for developers
-
-```yaml
-# PE creates this once
-apiVersion: platform/v1alpha1
-kind: ComponentDefinition
+apiVersion: v1
+kind: ConfigMap
 metadata:
-  name: production-web-app # ← New component type
-  annotations:
-    platform/composed-from: web-app
-    platform/addons: persistent-volume,tls-certificate,monitoring
-spec:
-  # Fully baked schema + resources
+  name: customer-portal-app-config
+data:
+  # ... config data
 ```
 
 ---
 
-### Strategy 2: Runtime Composition (Optional)
+## Runtime Composition
 
-Addons are composed **when component instance is created**.
+Addons are composed **when Component instance is created**.
 
-**Pros:**
+**Benefits:**
 
-- Developers can opt-in/out of addons per instance
-- Fewer component types to maintain
+- Developers control which addons to use
+- Single Component CRD (kind: Component)
+- Flexible - can add/remove addons per instance
 
-**Cons:**
-
-- More complex reconciliation
-- Validation at runtime
-- Performance overhead
-
-**Use Case:** Advanced developers who want flexibility
+**Process:**
 
 ```yaml
-# Developer specifies base + addons
+# Developer creates Component with addons
 apiVersion: platform/v1alpha1
 kind: Component
 metadata:
   name: my-app
 spec:
-  componentDefinition: web-app
+  componentType: web-app  # References ComponentTypeDefinition
+
+  parameters:
+    replicas: 3
+
   addons:
     - name: persistent-volume
+      instanceId: data-vol
       config:
         volumeName: data
         size: 50Gi
         mountPath: /app/data
-  # ... component parameters
+
+  build:
+    image: gcr.io/project/my-app:v1.0.0
 ```
 
 ---
@@ -883,11 +709,11 @@ const celContext = {
 
 ### Input
 
-**ComponentDefinition:**
+**ComponentTypeDefinition:**
 
 ```yaml
 apiVersion: platform/v1alpha1
-kind: ComponentDefinition
+kind: ComponentTypeDefinition
 metadata:
   name: web-app
 spec:
@@ -899,84 +725,87 @@ spec:
       template:
         kind: Deployment
         spec:
-          replicas: ${spec.replicas}
+          replicas: ${spec.parameters.replicas}
           template:
             spec:
               containers:
                 - name: app
-                  image: ${build.image}
+                  image: ${spec.build.image}
 ```
 
-**Addons:**
-
-1. `persistent-volume` configured with:
-
-   - volumeName: data
-   - size: 50Gi
-   - mountPath: /app/data
-
-2. `logging-sidecar` (default config)
-
-### Output
-
-**Generated ComponentDefinition:**
+**Component:**
 
 ```yaml
 apiVersion: platform/v1alpha1
-kind: ComponentDefinition
+kind: Component
 metadata:
-  name: web-app-with-storage-logging
+  name: customer-portal
 spec:
-  schema:
-    parameters:
-      replicas: integer | default=1
-      persistentVolume:
-        volumeName: string | required=true
-        size: string | default=10Gi
-        mountPath: string | required=true
-      loggingSidecar:
-        enabled: boolean | default=true
-        logLevel: string | default=info enum="debug,info,warn,error"
+  componentType: web-app
 
+  parameters:
+    replicas: 3
+
+  addons:
+    - name: persistent-volume
+      instanceId: data-vol
+      config:
+        volumeName: data
+        size: 50Gi
+        mountPath: /app/data
+
+    - name: logging-sidecar
+      instanceId: logger
+      config:
+        logLevel: info
+
+  build:
+    image: gcr.io/project/customer-portal:v1.2.3
+```
+
+### Output
+
+**Final Deployment Resource:**
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: customer-portal
+spec:
+  replicas: 3
+  template:
+    spec:
+      containers:
+        - name: app
+          image: gcr.io/project/customer-portal:v1.2.3
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+
+        - name: fluent-bit # ← From logging-sidecar addon
+          image: fluent/fluent-bit:2.1
+          env:
+            - name: LOG_LEVEL
+              value: info
+
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: customer-portal-data
+        - name: varlog # ← From logging-sidecar addon
+          emptyDir: {}
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: customer-portal-data
+spec:
+  accessModes: [ReadWriteOnce]
   resources:
-    - id: deployment
-      template:
-        kind: Deployment
-        spec:
-          replicas: ${spec.replicas}
-          template:
-            spec:
-              containers:
-                - name: app
-                  image: ${build.image}
-                  volumeMounts:
-                    - name: ${spec.persistentVolume.volumeName}
-                      mountPath: ${spec.persistentVolume.mountPath}
-
-                - name: fluent-bit # ← From logging-sidecar
-                  image: fluent/fluent-bit:2.1
-                  env:
-                    - name: LOG_LEVEL
-                      value: ${spec.loggingSidecar.logLevel}
-
-              volumes:
-                - name: ${spec.persistentVolume.volumeName}
-                  persistentVolumeClaim:
-                    claimName: ${metadata.name}-${spec.persistentVolume.volumeName}
-                - name: varlog # ← From logging-sidecar
-                  emptyDir: {}
-
-    - id: data-pvc # ← From persistent-volume
-      template:
-        apiVersion: v1
-        kind: PersistentVolumeClaim
-        metadata:
-          name: ${metadata.name}-${spec.persistentVolume.volumeName}
-        spec:
-          accessModes: [ReadWriteOnce]
-          resources:
-            requests:
-              storage: ${spec.persistentVolume.size}
+    requests:
+      storage: 50Gi
 ```
 
 ---
@@ -985,19 +814,20 @@ spec:
 
 Addon composition follows these principles:
 
-1. **Load** ComponentDefinition and Addons
-2. **Validate** compatibility and dependencies
-3. **Merge** schemas into single CRD schema
+1. **Load** ComponentTypeDefinition and Component
+2. **Validate** addon compatibility and dependencies
+3. **Merge** parameters from ComponentTypeDefinition and Component
 4. **Sort** addons by dependency order
-5. **Apply** patches and create resources
-6. **Generate** final ComponentDefinition or component instance
+5. **Apply** addon patches and create resources
+6. **Generate** final Kubernetes resources
 
 The composition engine handles:
 
-- Schema merging with namespacing
+- Parameter merging from ComponentTypeDefinition
 - Patch application with JSONPath
 - CEL expression evaluation
 - Dependency resolution
 - Conflict detection
+- Build context injection
 
-Result: Platform Engineers get composable, reusable addons that integrate seamlessly with ComponentDefinitions without code changes.
+Result: Developers get a simple, unified model where they create Components with addons, and the platform handles all composition at runtime.
