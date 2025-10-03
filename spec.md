@@ -48,6 +48,10 @@ schema:
     maxReplicas: integer | default=1
     rollingUpdate:
       maxSurge: integer | default=1 maximum=5
+
+  probe:
+    port/command
+    config: thresholds
   parameters:
     scaleToZero:
       pendingRequests: integer | maximum=100
@@ -347,7 +351,7 @@ spec:
     - name: api
       host: api.production.example.com
 
-    - name: admin  # Additional endpoint for prod only
+    - name: admin # Additional endpoint for prod only
       host: admin.production.example.com
 ```
 
@@ -366,13 +370,16 @@ spec:
 2. **Controlled Promotion**: For subsequent environments, changes require explicit promotion:
 
    **Via CLI/API:**
+
    ```bash
    oc promote component customer-portal --from development --to staging
    ```
+
    - Creates ComponentEnvSnapshot capturing current state
    - Updates EnvBinding with snapshot reference
 
    **Via GitOps:**
+
    ```bash
    # Step 1: Manually create snapshot
    oc snapshot create customer-portal --environment staging
@@ -380,6 +387,7 @@ spec:
 
    # Step 2: Update EnvBinding in Git with snapshot reference
    ```
+
    ```yaml
    apiVersion: platform/v1alpha1
    kind: EnvBinding
@@ -391,7 +399,7 @@ spec:
      environment: staging
 
      componentEnvSnapshotRef:
-       name: customer-portal-staging-20250102-001  # ← Must reference snapshot
+       name: customer-portal-staging-20250102-001 # ← Must reference snapshot
 
      overrides:
        maxReplicas: 5
@@ -566,12 +574,12 @@ Generated K8s Resources
 
 ### 2. CEL Template Context Sources
 
-| Variable                              | Source                                | Example                            |
-| ------------------------------------- | ------------------------------------- | ---------------------------------- |
-| `${metadata.name}`                    | Component CR metadata                 | `customer-portal`                  |
-| `${spec.maxReplicas}`                 | Component CR spec (envOverride)       | `3`                                |
-| `${spec.scaleToZero.pendingRequests}` | Component CR spec (parameter)         | `50`                               |
-| `${workload.endpoints}`               | Developer's workload.yaml             | `[{name: "api", port: 8080, ...}]` |
+| Variable                              | Source                                    | Example                            |
+| ------------------------------------- | ----------------------------------------- | ---------------------------------- |
+| `${metadata.name}`                    | Component CR metadata                     | `customer-portal`                  |
+| `${spec.maxReplicas}`                 | Component CR spec (envOverride)           | `3`                                |
+| `${spec.scaleToZero.pendingRequests}` | Component CR spec (parameter)             | `50`                               |
+| `${workload.endpoints}`               | Developer's workload.yaml                 | `[{name: "api", port: 8080, ...}]` |
 | `${build.image}`                      | Platform-injected, resolved from buildRef | `gcr.io/project/app:v1.2.3`        |
 
 ### 3. Key Points

@@ -47,11 +47,24 @@ spec:
   schema:
     parameters:
       # Static across environments
-      appType: string | default=stateless
+      lifecycle:
+        terminationGracePeriodSeconds: integer | default=30
+        imagePullPolicy: string | default=IfNotPresent enum="Always,IfNotPresent,Never"
 
     envOverrides:
       # Can vary per environment
-      maxReplicas: integer | default=3
+      resources:
+        requests:
+          cpu: string | default=100m
+          memory: string | default=256Mi
+        limits:
+          cpu: string | default=500m
+          memory: string | default=512Mi
+      autoscaling:
+        enabled: boolean | default=false
+        minReplicas: integer | default=1
+        maxReplicas: integer | default=10
+        targetCPUUtilization: integer | default=80
 
   # Templates generate K8s resources dynamically
   resources:
@@ -60,22 +73,72 @@ spec:
         apiVersion: apps/v1
         kind: Deployment
         metadata:
-          name: ${metadata.name}  # From Component instance
+          name: ${metadata.name}
         spec:
-          replicas: ${spec.parameters.maxReplicas}  # From developer's Component
+          selector:
+            matchLabels:
+              app: ${metadata.name}
           template:
+            metadata:
+              labels:
+                app: ${metadata.name}
             spec:
+              terminationGracePeriodSeconds: ${spec.lifecycle.terminationGracePeriodSeconds}
               containers:
                 - name: app
-                  image: ${spec.build.image}  # Platform-injected at runtime
-                  ports: ${workload.endpoints.map(e, {"containerPort": e.port})}  # From workload spec
+                  image: ${build.image}
+                  imagePullPolicy: ${spec.lifecycle.imagePullPolicy}
+                  ports: |
+                    ${workload.endpoints.map(e, {"containerPort": e.port})}
+                  resources:
+                    requests:
+                      cpu: ${spec.resources.requests.cpu}
+                      memory: ${spec.resources.requests.memory}
+                    limits:
+                      cpu: ${spec.resources.limits.cpu}
+                      memory: ${spec.resources.limits.memory}
+
+    - id: hpa
+      condition: ${spec.autoscaling.enabled}
+      template:
+        apiVersion: autoscaling/v2
+        kind: HorizontalPodAutoscaler
+        metadata:
+          name: ${metadata.name}
+        spec:
+          scaleTargetRef:
+            apiVersion: apps/v1
+            kind: Deployment
+            name: ${metadata.name}
+          minReplicas: ${spec.autoscaling.minReplicas}
+          maxReplicas: ${spec.autoscaling.maxReplicas}
+          metrics:
+            - type: Resource
+              resource:
+                name: cpu
+                target:
+                  type: Utilization
+                  averageUtilization: ${spec.autoscaling.targetCPUUtilization}
+
+    - id: pdb
+      condition: ${spec.autoscaling.enabled}
+      template:
+        apiVersion: policy/v1
+        kind: PodDisruptionBudget
+        metadata:
+          name: ${metadata.name}
+        spec:
+          selector:
+            matchLabels:
+              app: ${metadata.name}
+          minAvailable: 1
 ```
 
 **Key insight:** Templates access data from different sources at different times:
 
 - `${metadata.*}` - Component instance metadata
-- `${spec.parameters.*}` - Developer configuration from Component
-- `${spec.build.*}` - Platform runtime context (injected by platform)
+- `${spec.*}` - Developer configuration from Component (merged parameters + envOverrides)
+- `${build.*}` - Build context from Component's build field
 - `${workload.*}` - Application metadata extracted from source repo at build time
 
 ### 2. Addons for Composability
@@ -87,35 +150,36 @@ Addons can:
 - **Create** new resources (PVCs, NetworkPolicies, Certificates)
 - **Modify** existing resources (add volumes, sidecars, environment variables)
 
+**Addon 1: PVC Addon** - Creates PVC and adds volume to pod
+
 ```yaml
 apiVersion: platform/v1alpha1
 kind: Addon
 metadata:
-  name: persistent-volume
+  name: persistent-volume-claim
 spec:
-  displayName: "Persistent Volume"
+  displayName: "Persistent Volume Claim"
 
   schema:
     parameters:
       volumeName: string | required=true
-      mountPath: string | required=true
     envOverrides:
-      size: string | default=10Gi # Can differ per environment
+      size: string | default=10Gi
       storageClass: string | default=standard
 
-  # What this addon creates
   creates:
     - apiVersion: v1
       kind: PersistentVolumeClaim
       metadata:
         name: ${metadata.name}-${instanceId}
       spec:
+        accessModes:
+          - ReadWriteOnce
         resources:
           requests:
             storage: ${spec.size}
         storageClassName: ${spec.storageClass}
 
-  # How this addon modifies existing resources
   patches:
     - target:
         resourceType: Deployment
@@ -126,6 +190,38 @@ spec:
           name: ${spec.volumeName}
           persistentVolumeClaim:
             claimName: ${metadata.name}-${instanceId}
+```
+
+**Addon 2: Volume Mount Addon** - Mounts a volume to a specific container
+
+```yaml
+apiVersion: platform/v1alpha1
+kind: Addon
+metadata:
+  name: volume-mount
+spec:
+  displayName: "Volume Mount"
+
+  schema:
+    parameters:
+      volumeName: string | required=true
+      mountPath: string | required=true
+      containerName: string | required=true
+      subPath: string | default=""
+      readOnly: boolean | default=false
+
+  patches:
+    - target:
+        resourceType: Deployment
+        containerName: ${spec.containerName}
+      patch:
+        op: add
+        path: /spec/template/spec/containers/[?(@.name=='${spec.containerName}')]/volumeMounts/-
+        value:
+          name: ${spec.volumeName}
+          mountPath: ${spec.mountPath}
+          subPath: ${spec.subPath}
+          readOnly: ${spec.readOnly}
 ```
 
 ### 3. Component CRD - Single Unified Resource
@@ -143,17 +239,40 @@ spec:
 
   # Parameters from ComponentTypeDefinition (oneOf schema based on componentType)
   parameters:
-    maxReplicas: 5
+    lifecycle:
+      terminationGracePeriodSeconds: 60
+      imagePullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+    autoscaling:
+      enabled: false
+      minReplicas: 2
+      maxReplicas: 10
+      targetCPUUtilization: 80
 
   # Addon instances (developer chooses which addons to use)
   addons:
-    - name: persistent-volume
-      instanceId: app-data # Always required
+    # Create PVC and add volume to pod
+    - name: persistent-volume-claim
+      instanceId: app-data
       config:
-        volumeName: app-data
-        mountPath: /app/data
+        volumeName: app-data-vol
         size: 50Gi
         storageClass: fast
+
+    # Mount the volume to the app container
+    - name: volume-mount
+      instanceId: app-data-mount
+      config:
+        volumeName: app-data-vol
+        mountPath: /app/data
+        containerName: app
+        readOnly: false
 
     - name: network-policy
       instanceId: default
@@ -185,7 +304,6 @@ The platform extracts workload metadata from the source repository (e.g., `workl
 
 ```yaml
 # workload.yaml in source repo
-configSchemaPath: ./schemas/config.json
 endpoints:
   - name: api
     type: http
@@ -203,252 +321,10 @@ connections:
       env:
         - name: PRODUCT_CATALOG_SERVICE_ADDR
           value: "{{ .host }}:{{ .port }}"
+configSchema: ... # Design TBD
 ```
 
 This workload spec is available as `${workload.*}` in ComponentTypeDefinition templates.
-
----
-
-## The Workflow: End-to-End
-
-### Step 1: PE Creates Base ComponentTypeDefinition
-
-Platform Engineer defines a reusable template:
-
-```yaml
-apiVersion: platform/v1alpha1
-kind: ComponentTypeDefinition
-metadata:
-  name: web-app
-spec:
-  schema:
-    envOverrides:
-      maxReplicas: integer | default=3
-      resources:
-        requests:
-          cpu: string | default=100m
-          memory: string | default=256Mi
-
-  resources:
-    - id: deployment
-      template:
-        apiVersion: apps/v1
-        kind: Deployment
-        spec:
-          replicas: ${spec.parameters.maxReplicas}
-          template:
-            spec:
-              containers:
-                - name: app
-                  image: ${spec.build.image}
-                  resources:
-                    requests:
-                      cpu: ${spec.parameters.resources.requests.cpu}
-                      memory: ${spec.parameters.resources.requests.memory}
-                  ports: ${workload.endpoints.map(e, {"containerPort": e.port})}
-
-    - id: service
-      template:
-        apiVersion: v1
-        kind: Service
-        spec:
-          ports: ${workload.endpoints.map(e, {"name": e.name, "port": e.port})}
-
-    - id: ingress
-      forEach: ${workload.endpoints.filter(e, e.visibility == "public")}
-      template:
-        apiVersion: networking.k8s.io/v1
-        kind: Ingress
-        metadata:
-          name: ${metadata.name}-${item.name}
-        spec:
-          rules:
-            - host: ${item.host}
-              http:
-                paths:
-                  - path: ${item.path}
-                    backend:
-                      service:
-                        name: ${metadata.name}-svc
-```
-
-**Key features:**
-
-- Uses `forEach` to generate multiple Ingresses based on workload endpoints
-- Pulls endpoints from workload spec in Component
-- Separates environment-specific config (`envOverrides`) from static config (`parameters`)
-
-### Step 2: PE Creates Addons
-
-Platform Engineer creates reusable addons for common infrastructure needs:
-
-**Addon 1: Persistent Storage**
-
-```yaml
-apiVersion: platform/v1alpha1
-kind: Addon
-metadata:
-  name: persistent-volume
-spec:
-  schema:
-    parameters:
-      volumeName: string | required=true
-      mountPath: string | required=true
-    envOverrides:
-      size: string | default=10Gi
-      storageClass: string | default=standard
-
-  creates:
-    - kind: PersistentVolumeClaim
-      # ... creates PVC
-
-  patches:
-    - target: { resourceType: Deployment }
-      patch:
-        op: add
-        path: /spec/template/spec/volumes/-
-        # ... adds volume mount
-```
-
-**Addon 2: Network Isolation**
-
-```yaml
-apiVersion: platform/v1alpha1
-kind: Addon
-metadata:
-  name: network-policy
-spec:
-  schema:
-    parameters:
-      denyAll: boolean | default=true
-      allowIngress: "[]object"
-      allowEgress: "[]object"
-
-  creates:
-    - kind: NetworkPolicy
-      # ... creates strict network policy
-```
-
-**Addon 3: Application Config**
-
-```yaml
-apiVersion: platform/v1alpha1
-kind: Addon
-metadata:
-  name: config-files
-spec:
-  schema:
-    parameters:
-      configs: "[]object"
-        name: string
-        type: string | enum="configmap,secret"
-        mountPath: string
-        files: "[]object"
-
-  creates:
-    - forEach: ${spec.configs}
-      resource:
-        kind: ConfigMap  # or Secret
-        # ... creates config/secret per item
-```
-
-### Step 3: Developer Creates Component
-
-Developer uses the Component CRD to compose ComponentTypeDefinition with addons:
-
-```yaml
-apiVersion: platform/v1alpha1
-kind: Component
-metadata:
-  name: checkout-service
-  namespace: my-project
-spec:
-  # Select ComponentTypeDefinition
-  componentType: web-app
-
-  # Component parameters
-  parameters:
-    maxReplicas: 5
-    resources:
-      requests:
-        cpu: 200m
-        memory: 512Mi
-
-  # Addon instances
-  addons:
-    - name: persistent-volume
-      instanceId: app-data
-      config:
-        volumeName: app-data
-        mountPath: /app/data
-        size: 50Gi # envOverride - can vary per environment
-        storageClass: fast
-
-    - name: network-policy
-      instanceId: default
-      config:
-        denyAll: true
-        allowIngress:
-          - from: "namespace:ingress-gateway"
-            ports: [8080]
-        allowEgress:
-          - to: "namespace:backend-services"
-            ports: [8080]
-
-    - name: config-files
-      instanceId: app-config
-      config:
-        configs:
-          - name: payment-config
-            type: secret
-            mountPath: /etc/payment
-            files:
-              - fileName: credentials.json
-                content: |
-                  {"api_key": "..."}
-
-  # Build field (added to CRD schema by platform, populated by developer)
-  build:
-    repository:
-      url: https://github.com/myorg/checkout-service
-      revision:
-        branch: main
-    templateRef:
-      name: docker
-```
-
-**Developer also defines workload metadata in source repo** (`workload.yaml`):
-
-```yaml
-# checkout-service/workload.yaml
-configSchemaPath: ./schemas/config.json
-endpoints:
-  - name: api
-    type: http
-    port: 8080
-    path: /
-    visibility: public
-
-connections:
-  - name: payment-service
-    type: api
-    params:
-      componentName: payment
-      endpoint: api
-    inject:
-      env:
-        - name: PAYMENT_SERVICE_URL
-          value: "{{ .host }}:{{ .port }}"
-```
-
-**Developer experience:**
-
-- Simple Component CRD
-- Choose ComponentTypeDefinition via `componentType` field
-- Configure component parameters
-- Add addons via `addons[]` array with `instanceId`
-- Provide `build` field with repository and template info
-- Define workload metadata (endpoints, connections) in source repo (`workload.yaml`)
 
 ### Step 4: Environment-Specific Overrides
 
@@ -466,387 +342,22 @@ spec:
 
   # Override component envOverrides
   overrides:
-    maxReplicas: 20
     resources:
       requests:
         cpu: 500m
         memory: 1Gi
+      limits:
+        cpu: 2000m
+        memory: 2Gi
+    autoscaling:
+      enabled: true
+      minReplicas: 5
+      maxReplicas: 50
+      targetCPUUtilization: 70
 
   # Override addon envOverrides (keyed by instanceId)
   addonOverrides:
-    app-data: # instanceId of persistent-volume addon
+    app-data: # instanceId of persistent-volume-claim addon
       size: 200Gi # Much larger in prod
       storageClass: premium
 ```
-
-**Key features:**
-
-- Same component, different configuration per environment
-- Can override `envOverrides` from component and addons
-- Cannot override `parameters` (those are static)
-- `addonOverrides` keyed by `instanceId`
-
-### Step 5: Platform Renders Final Resources
-
-When the controller reconciles, it:
-
-1. Loads ComponentTypeDefinition (`web-app`)
-2. Loads Component instance
-3. Extracts workload metadata from source repo (at build time)
-4. Applies addon instances from Component's `addons[]` array
-5. Loads EnvSettings
-6. Renders final Kubernetes resources
-
-**Example output** (simplified):
-
-```yaml
-# Deployment (from ComponentTypeDefinition + addons)
-apiVersion: apps/v1
-kind: Deployment
-spec:
-  replicas: 20 # From EnvSettings override
-  template:
-    spec:
-      containers:
-        - name: app
-          image: gcr.io/company/checkout:v2.3.1 # From build
-          ports:
-            - containerPort: 8080 # From workload endpoints
-          resources:
-            requests:
-              cpu: 500m # From EnvSettings override
-              memory: 1Gi
-          volumeMounts:
-            - name: app-data # From persistent-volume addon
-              mountPath: /app/data
-            - name: payment-config # From config-files addon
-              mountPath: /etc/payment
-
-      volumes:
-        - name: app-data # From persistent-volume addon
-          persistentVolumeClaim:
-            claimName: checkout-service-app-data
-        - name: payment-config # From config-files addon
-          secret:
-            secretName: checkout-service-payment-config
-
----
-# PVC (from persistent-volume addon)
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: checkout-service-app-data
-spec:
-  resources:
-    requests:
-      storage: 200Gi # From EnvSettings override
-  storageClassName: premium # From EnvSettings override
-
----
-# NetworkPolicy (from network-policy addon)
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-spec:
-  podSelector:
-    matchLabels:
-      app: checkout-service
-  policyTypes: [Ingress, Egress]
-  ingress:
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              name: ingress-gateway
-      ports: [8080]
-
----
-# Service (from ComponentTypeDefinition)
-apiVersion: v1
-kind: Service
-spec:
-  ports:
-    - name: api
-      port: 8080 # From workload endpoints
-
----
-# Ingress (from ComponentTypeDefinition forEach)
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: checkout-service-api
-spec:
-  rules:
-    - host: checkout.example.com # From EnvSettings
-      http:
-        paths:
-          - path: / # From workload endpoints
-            backend:
-              service:
-                name: checkout-service-svc
-```
-
----
-
-## Key Benefits Illustrated
-
-### 1. Simplified Architecture
-
-**Single Component CRD for all component types:**
-
-```
-web-app ComponentTypeDefinition
-    ↓
-Component (kind: Component, componentType: web-app)
-    +
-Addons (in Component.spec.addons[])
-    ↓
-Final K8s Resources
-```
-
-No intermediate resources, no generated CRDs per type.
-
-### 2. Developer Control
-
-Developers explicitly choose addons:
-
-```yaml
-spec:
-  addons:
-    - name: persistent-volume
-      instanceId: data
-      config: { ... }
-    - name: network-policy
-      instanceId: default
-      config: { ... }
-```
-
-Full control over which addons to use and how to configure them.
-
-### 3. Environment Progression
-
-Same component definition, different configurations:
-
-```
-Development:
-  - maxReplicas: 2
-  - storage: 10Gi (standard)
-
-Staging:
-  - maxReplicas: 5
-  - storage: 50Gi (fast)
-
-Production:
-  - maxReplicas: 20
-  - storage: 200Gi (premium)
-```
-
-### 4. Multiple Addon Instances
-
-Use the same addon multiple times:
-
-```yaml
-addons:
-  - name: persistent-volume
-    instanceId: app-data
-    config:
-      volumeName: app-data
-      mountPath: /app/data
-      size: 100Gi
-
-  - name: persistent-volume
-    instanceId: cache-data
-    config:
-      volumeName: cache-data
-      mountPath: /app/cache
-      size: 20Gi
-```
-
-`instanceId` required for all addons ensures consistent override structure.
-
----
-
-## Simplified Composition Model
-
-**No two-stage composition**, just runtime composition:
-
-```
-ComponentTypeDefinition (base template)
-        +
-Component (with addon instances)
-        +
-Build Context (platform-injected)
-        ↓
-[Runtime Composition Engine]
-        ↓
-Final Kubernetes Resources
-```
-
-**What happens:**
-
-1. Developer creates Component (with componentType, parameters, addons, build)
-2. Developer defines workload metadata in source repo (`workload.yaml`)
-3. Controller loads ComponentTypeDefinition
-4. Controller extracts workload metadata from source repo (at build time)
-5. Controller applies addon instances from Component's `addons[]` array
-6. Controller loads EnvSettings for environment
-7. Controller applies environment overrides
-8. Controller renders final K8s resources using Component spec, build info, and workload metadata
-9. Resources applied to cluster
-
-**Result:** Simple, unified model with runtime composition and build-time workload extraction.
-
----
-
-## How This Achieves the Proposal Goals
-
-### 1. Atomic, Composable CRDs
-
-**Addons as atomic units:**
-
-- `persistent-volume` addon encapsulates storage provisioning
-- `network-policy` addon encapsulates network isolation
-- `config-files` addon encapsulates configuration management
-
-**Composition in action:**
-
-```
-web-app (ComponentTypeDefinition)
-  + persistent-volume (addon)
-  + network-policy (addon)
-  = Component (with both addons)
-```
-
-Developers compose atomic pieces rather than maintaining monolithic definitions.
-
-### 2. Close to Kubernetes APIs
-
-**Native K8s resources in templates:**
-
-```yaml
-resources:
-  - id: deployment
-    template:
-      apiVersion: apps/v1
-      kind: Deployment # Native K8s Deployment
-      spec:
-        replicas: ${spec.parameters.maxReplicas}
-```
-
-**Addons create/modify native resources:**
-
-- Addons work with Deployment, Service, Ingress, PVC directly
-- No abstraction layer hiding Kubernetes concepts
-- Platform Engineers familiar with K8s can immediately understand the system
-
-### 3. Extensible Composition
-
-**Multiple composition points:**
-
-**Base ComponentTypeDefinition:**
-
-```yaml
-resources:
-  - kind: Deployment
-  - kind: Service
-  - kind: Ingress
-```
-
-**Addons (developer-selected):**
-
-```yaml
-addons:
-  - persistent-volume # Creates PVC, patches Deployment
-  - network-policy # Creates NetworkPolicy
-  - config-files # Creates ConfigMap/Secret
-```
-
-**External CRDs:**
-Addons can create resources from external CRDs (Crossplane, cloud provider operators, etc.):
-
-```yaml
-creates:
-  - apiVersion: database.example.com/v1
-    kind: PostgresInstance # External CRD
-```
-
-### 4. Parameterization & Environment Awareness
-
-**Two-level schema:**
-
-`parameters` - Static across environments:
-
-```yaml
-schema:
-  parameters:
-    volumeName: string
-    mountPath: string
-```
-
-`envOverrides` - Vary per environment:
-
-```yaml
-schema:
-  envOverrides:
-    size: string | default=10Gi
-    storageClass: string | default=standard
-```
-
-**Environment progression:**
-
-```yaml
-# Development EnvSettings
-addonOverrides:
-  app-data:                 # instanceId
-    size: 10Gi
-    storageClass: standard
-
-# Production EnvSettings
-addonOverrides:
-  app-data:                 # instanceId
-    size: 200Gi
-    storageClass: premium
-```
-
-**Note:** EnvSettings uses `addonOverrides` keyed by `instanceId`, ensuring consistent structure for all addons.
-
-Same component definition, different configurations per environment.
-
----
-
-## Summary
-
-This proposal introduces **ComponentTypeDefinitions with Addons** to achieve the goals outlined in the main proposal:
-
-**Simplified Architecture:**
-
-- Single Component CRD for all component types
-- No intermediate resources or generated CRDs
-- ComponentTypeDefinition as base template
-- Addons as composable units
-- Runtime composition when Component is created
-
-**Atomic & Composable:**
-
-- Addons are self-contained units encapsulating specific concerns (storage, networking, security)
-- Developers compose ComponentTypeDefinition + Addons in Component resource
-- Simple, reusable pieces
-
-**Close to Kubernetes APIs:**
-
-- Templates generate native K8s resources (Deployment, Service, Ingress, etc.)
-- Addons create and modify standard K8s resources directly
-- No abstraction layer hiding Kubernetes concepts
-
-**Extensible Composition:**
-
-- Developers choose which addons to use
-- Multiple instances of same addon supported via `instanceId`
-- Support for external CRDs (Crossplane, cloud providers, custom operators)
-- Runtime composition model
-
-**Parameterization & Environment Awareness:**
-
-- Schema separates static config (`parameters`) from environment-specific config (`envOverrides`)
-- EnvSettings provides environment-specific overrides for components and addons
-- Developers get unified Component CRD with clear override semantics
-
-**Result:** Developers can compose ComponentTypeDefinitions with Addons using a simple, unified Component CRD, while the platform handles all composition at runtime.
