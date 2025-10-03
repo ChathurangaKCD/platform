@@ -20,14 +20,14 @@ The system has a simplified hierarchy:
    - Can be PE-only or developer-allowed
    - Declares `parameters` (static) and `envOverrides` (environment-specific)
 
-3. **Component** (Developer-created, single CRD)
-   - Developers directly create Component resources
+3. **Component** (single CRD)
+   - Developers create Component resources
    - Specifies `componentType` (which ComponentTypeDefinition to use)
    - Has `parameters` (merged from ComponentTypeDefinition)
    - Has `addons[]` array with addon instances and their configurations
-   - Has `build` field (platform-injected)
+   - Has `build` field with repository and template info
 
-4. **EnvSettings** (Developer/PE-created)
+4. **EnvSettings**
    - Environment-specific overrides
    - Can override `envOverrides` from both component and addons
    - Cannot override `parameters` (those are static)

@@ -133,12 +133,12 @@ Each example includes:
                type: configmap
                mountPath: /etc/config
 
-     # Build context (platform-injected)
+     # Build context
      build:
        image: gcr.io/project/customer-portal:v1.2.3
    ```
 
-2. **Create EnvSettings for production**:
+2. **EnvSettings for production environment**:
    ```yaml
    apiVersion: platform/v1alpha1
    kind: EnvSettings

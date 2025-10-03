@@ -148,7 +148,7 @@ spec:
   # Addon instances (developer chooses which addons to use)
   addons:
     - name: persistent-volume
-      instanceId: app-data        # Always required
+      instanceId: app-data # Always required
       config:
         volumeName: app-data
         mountPath: /app/data
@@ -381,7 +381,7 @@ spec:
       config:
         volumeName: app-data
         mountPath: /app/data
-        size: 50Gi        # envOverride - can vary per environment
+        size: 50Gi # envOverride - can vary per environment
         storageClass: fast
 
     - name: network-policy
@@ -450,9 +450,9 @@ connections:
 - Provide `build` field with repository and template info
 - Define workload metadata (endpoints, connections) in source repo (`workload.yaml`)
 
-### Step 4: Developer Creates Environment-Specific Overrides
+### Step 4: Environment-Specific Overrides
 
-Developer creates EnvSettings for production:
+EnvSettings for production environment:
 
 ```yaml
 apiVersion: platform/v1alpha1
@@ -474,8 +474,8 @@ spec:
 
   # Override addon envOverrides (keyed by instanceId)
   addonOverrides:
-    app-data:               # instanceId of persistent-volume addon
-      size: 200Gi           # Much larger in prod
+    app-data: # instanceId of persistent-volume addon
+      size: 200Gi # Much larger in prod
       storageClass: premium
 ```
 
@@ -613,10 +613,10 @@ spec:
   addons:
     - name: persistent-volume
       instanceId: data
-      config: {...}
+      config: { ... }
     - name: network-policy
       instanceId: default
-      config: {...}
+      config: { ... }
 ```
 
 Full control over which addons to use and how to configure them.

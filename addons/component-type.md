@@ -174,9 +174,9 @@ The controller:
 6. Renders final K8s resources using Component parameters, build context, and workload metadata
 7. Applies to cluster
 
-### 3. Developer Creates EnvSettings
+### 3. EnvSettings for Environment-Specific Overrides
 
-For environment-specific overrides:
+Example EnvSettings resource:
 
 ```yaml
 apiVersion: platform/v1alpha1
