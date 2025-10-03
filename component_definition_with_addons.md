@@ -355,9 +355,10 @@ spec:
       maxReplicas: 50
       targetCPUUtilization: 70
 
-  # Override addon envOverrides (keyed by instanceId)
+  # Override addon envOverrides (keyed by addon name, then instanceId)
   addonOverrides:
-    app-data: # instanceId of persistent-volume-claim addon
-      size: 200Gi # Much larger in prod
-      storageClass: premium
+    persistent-volume-claim: # Addon name
+      app-data: # instanceId
+        size: 200Gi # Much larger in prod
+        storageClass: premium
 ```
