@@ -1,31 +1,58 @@
-# ComponentTypeDefinitions with Addons
+# Proposal: ComponentTypeDefinitions with Addons
 
-This document explains how ComponentTypeDefinitions with Addons achieve the goals outlined in the main proposal: making component definitions **atomic, composable, and close to Kubernetes primitives**.
+## Background
 
-> **Full technical details**: See [detailed documentation](https://github.com/openchoreo/openchoreo/tree/main/docs/component-definitions) in the repository.
+OpenChoreo's current component types (**Services**, **WebApps**, and **ScheduledTasks**) were inherited from Choreo v2. While these abstractions simplify a finite set of common workloads, they are **too rigid and too far abstracted** to represent all applications that could otherwise be deployed with just the Kubernetes APIs.
 
----
+Key limitations include:
 
-## Overview
+- **Over-abstraction from Kubernetes APIs**: Current component types mask native Kubernetes resources, making customization difficult or impossible as well as making the mental model harder for someone who understands Kubernetes to wrap their head around OpenChoreo's Components.
 
-To enable extensible composition while staying close to Kubernetes APIs, we introduce two core mechanisms:
+- **Limited extensibility**: Customization is restricted to ComponentClasses, which can only override parts of existing Deployment, CronJob, or Job specs. There is also no way to override/patch/overlay environment specific parameters as of today.
 
-1. **Template-based ComponentTypeDefinitions** - Generate K8s resources dynamically using CEL expressions
-2. **Addons** - Reusable, composable units that augment ComponentTypeDefinitions
+- **No composition model**: Platform engineers cannot define their own component types by combining Kubernetes primitives, OpenChoreo concepts, and external CRDs of other tools they may be using (e.g., cloud provider CRs, Crossplane resources).
 
-This approach allows Platform Engineers to:
+As a result, platform engineers can be forced to bypass OpenChoreo entirely if their requirements do not fit into one of OpenChoreo's opinionated component types.
 
-- Define base component templates once (ComponentTypeDefinitions)
-- Create reusable infrastructure addons (storage, networking, security)
-- Allow developers to compose ComponentTypeDefinitions with Addons
-- Avoid creating separate definitions for every variation
+## Proposal
 
-Developers then:
+We propose **ComponentTypeDefinitions with Addons** to make component definitions **atomic, composable, and closer to Kubernetes primitives**, enabling both flexibility and a better user experience.
 
-- Create Component resources (single CRD: `kind: Component`)
-- Select which ComponentTypeDefinition to use
-- Add addon instances to customize behavior
-- Get a unified, simple interface
+### Goals
+
+1. **OpenChoreo concepts as atomic, composable CRDs**
+
+   - Break OpenChoreo concepts into standalone, reusable units (ComponentTypeDefinitions and Addons)
+   - Allow platform engineers to compose these units into new component types tailored to their organization
+   - Support multiple instances of the same addon for flexibility
+
+2. **Stay Close to Kubernetes APIs**
+
+   - Use Kubernetes resources (e.g., Deployment, StatefulSet, Job) as the foundation
+   - Ensure OpenChoreo concepts augment, not replace, native Kubernetes functionality
+   - Use CEL templates that generate standard K8s resources
+
+3. **Extensible Composition Model**
+
+   - Allow platform engineers to define ComponentTypeDefinitions using K8s primitives
+   - Enable reusable Addons that can create or modify any K8s resources
+   - Support composition of external CRDs (e.g., cloud provider services, Crossplane resources, security policies)
+
+4. **Parameterization for Developers & Environment Awareness**
+
+   - Provide a simple, unified Component CRD for developers
+   - Distinguish between static parameters (same across environments) and envOverrides (environment-specific)
+   - Support environment-specific overrides via EnvSettings
+
+### Benefits
+
+- **Extensibility**: Platform engineers can model organizational needs without forking or bypassing OpenChoreo. Addons enable cross-cutting capabilities (storage, networking, security) to be reused across component types.
+
+- **Alignment with Kubernetes**: Reduces friction by staying consistent with native APIs, making it easier for Kubernetes-savvy teams to understand and adopt OpenChoreo.
+
+- **Developer Experience**: Developers get a consistent, simplified interface (single Component CRD) with guardrails, while platform engineers retain full control.
+
+- **Reusability**: Define ComponentTypeDefinitions and Addons once, compose them in multiple ways across different components.
 
 ---
 
@@ -38,7 +65,7 @@ ComponentTypeDefinitions use templates to generate Kubernetes resources dynamica
 Instead of static YAML, use **CEL (Common Expression Language)** templates that pull data from multiple sources:
 
 ```yaml
-apiVersion: platform/v1alpha1
+apiVersion: openchoreo.dev/v1alpha1
 kind: ComponentTypeDefinition
 metadata:
   name: web-app
@@ -153,7 +180,7 @@ Addons can:
 **Addon 1: PVC Addon** - Creates PVC and adds volume to pod
 
 ```yaml
-apiVersion: platform/v1alpha1
+apiVersion: openchoreo.dev/v1alpha1
 kind: Addon
 metadata:
   name: persistent-volume-claim
@@ -195,7 +222,7 @@ spec:
 **Addon 2: Volume Mount Addon** - Mounts a volume to a specific container
 
 ```yaml
-apiVersion: platform/v1alpha1
+apiVersion: openchoreo.dev/v1alpha1
 kind: Addon
 metadata:
   name: volume-mount
@@ -229,7 +256,7 @@ spec:
 Instead of generating multiple CRDs, developers use a single **Component** CRD with a `componentType` field and `addons[]` array:
 
 ```yaml
-apiVersion: platform/v1alpha1
+apiVersion: openchoreo.dev/v1alpha1
 kind: Component
 metadata:
   name: checkout-service
@@ -298,6 +325,15 @@ spec:
           value: ./Dockerfile
 ```
 
+**Component CRD Schema:**
+
+The Component CRD uses a **oneOf schema** for the `parameters` field based on the `componentType`:
+
+- When `componentType: web-app`, the `parameters` field schema is the **merged schema** of the ComponentTypeDefinition's `parameters` and `envOverrides`
+- This allows developers to configure both static parameters and environment-overridable settings in one place
+- At runtime, these are split: `parameters` remain static, `envOverrides` can be overridden in EnvSettings
+- Templates access merged values via `${spec.*}` (e.g., `${spec.lifecycle.terminationGracePeriodSeconds}`, `${spec.resources.requests.cpu}`)
+
 **Workload Spec (extracted from source repo at build time):**
 
 The platform extracts workload metadata from the source repository (e.g., `workload.yaml`) and uses it as input to ComponentTypeDefinition templates:
@@ -331,7 +367,7 @@ This workload spec is available as `${workload.*}` in ComponentTypeDefinition te
 EnvSettings for production environment:
 
 ```yaml
-apiVersion: platform/v1alpha1
+apiVersion: openchoreo.dev/v1alpha1
 kind: EnvSettings
 metadata:
   name: checkout-service-prod
