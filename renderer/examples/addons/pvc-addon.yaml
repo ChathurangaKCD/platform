@@ -1,0 +1,59 @@
+apiVersion: openchoreo.dev/v1alpha1
+kind: Addon
+metadata:
+  name: persistent-volume-claim
+spec:
+  displayName: "Persistent Volume Claim"
+
+  schema:
+    parameters:
+      volumeName: string | required=true
+      mountPath: string | required=true
+      containerName: string | default=app
+      readOnly: boolean | default=false
+      subPath: string | default=""
+
+    envOverrides:
+      size: string | default=10Gi
+      storageClass: string | default=standard
+      accessMode: string | default=ReadWriteOnce
+
+  # Create new PVC resource
+  creates:
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: ${metadata.name}-${instanceId}
+        namespace: ${metadata.namespace}
+      spec:
+        accessModes:
+          - ${spec.accessMode}
+        resources:
+          requests:
+            storage: ${spec.size}
+        storageClassName: ${spec.storageClass}
+
+  # Patch the Deployment to add volume and volumeMount
+  patches:
+    # Add volume to pod spec
+    - target:
+        resourceType: Deployment
+      patch:
+        op: add
+        path: /spec/template/spec/volumes/-
+        value:
+          name: ${spec.volumeName}
+          persistentVolumeClaim:
+            claimName: ${metadata.name}-${instanceId}
+
+    # Add volumeMount to container
+    - target:
+        resourceType: Deployment
+      patch:
+        op: add
+        path: /spec/template/spec/containers/[?(@.name=='${spec.containerName}')]/volumeMounts/-
+        value:
+          name: ${spec.volumeName}
+          mountPath: ${spec.mountPath}
+          readOnly: ${spec.readOnly}
+          subPath: ${spec.subPath}

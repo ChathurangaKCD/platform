@@ -1,0 +1,52 @@
+apiVersion: openchoreo.dev/v1alpha1
+kind: ComponentTypeDefinition
+metadata:
+  name: deployment-component
+spec:
+  # Schema defines what developers can configure
+  schema:
+    parameters:
+      # Static across environments
+      replicas: integer | default=1
+      imagePullPolicy: string | default=IfNotPresent
+
+    envOverrides:
+      # Can vary per environment
+      resources:
+        requests:
+          cpu: string | default=100m
+          memory: string | default=256Mi
+        limits:
+          cpu: string | default=500m
+          memory: string | default=512Mi
+
+  # Templates generate K8s resources dynamically
+  resources:
+    - id: deployment
+      template:
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: ${metadata.name}
+          namespace: ${metadata.namespace}
+        spec:
+          replicas: ${spec.replicas}
+          selector:
+            matchLabels:
+              app: ${metadata.name}
+          template:
+            metadata:
+              labels:
+                app: ${metadata.name}
+            spec:
+              containers:
+                - name: app
+                  image: ${build.image}
+                  imagePullPolicy: ${spec.imagePullPolicy}
+                  resources:
+                    requests:
+                      cpu: ${spec.resources.requests.cpu}
+                      memory: ${spec.resources.requests.memory}
+                    limits:
+                      cpu: ${spec.resources.limits.cpu}
+                      memory: ${spec.resources.limits.memory}

@@ -1,0 +1,73 @@
+apiVersion: openchoreo.dev/v1alpha1
+kind: Component
+metadata:
+  name: web-service
+  namespace: default
+spec:
+  # References ComponentTypeDefinition
+  componentType: deployment-component
+
+  # Parameters from ComponentTypeDefinition schema
+  parameters:
+    replicas: 2
+    imagePullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+  # Addon instances - will be applied in order
+  addons:
+    # Stage 2: Add PVC
+    - name: persistent-volume-claim
+      instanceId: app-data
+      config:
+        volumeName: app-data-vol
+        mountPath: /app/data
+        containerName: app
+        readOnly: false
+        subPath: ""
+        size: 10Gi
+        storageClass: standard
+        accessMode: ReadWriteOnce
+
+    # Stage 3: Add logging sidecar
+    - name: sidecar-container
+      instanceId: logger
+      config:
+        name: fluent-bit
+        image: fluent/fluent-bit:2.1
+        args:
+          - "--config=/fluent-bit/etc/fluent-bit.conf"
+        env:
+          - name: LOG_LEVEL
+            value: info
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
+
+    # Stage 4: Add emptyDir shared by both containers
+    - name: emptydir-volume
+      instanceId: shared-logs
+      config:
+        volumeName: shared-logs
+        mounts:
+          - containerName: app
+            mountPath: /var/log/app
+            readOnly: false
+          - containerName: fluent-bit
+            mountPath: /var/log/app
+            readOnly: true
+        medium: ""
+        sizeLimit: 1Gi
+
+  # Build context (platform-injected)
+  build:
+    image: gcr.io/my-project/web-service:v1.0.0
