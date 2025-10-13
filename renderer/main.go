@@ -44,8 +44,13 @@ func main() {
 	}
 	fmt.Printf("Loaded %d addons\n", len(addons))
 
-	// 4. Validate schemas and generate JSON schemas
+	// 4. Clean and recreate schema output directory
 	schemaOutputDir := filepath.Join(examplesDir, "schemas")
+	if err := os.RemoveAll(schemaOutputDir); err != nil {
+		log.Fatalf("Failed to clean schemas directory: %v", err)
+	}
+
+	// Validate schemas and generate JSON schemas
 	if err := parser.ValidateSchemas(ctd, addons, schemaOutputDir); err != nil {
 		log.Fatalf("Failed to validate schemas: %v", err)
 	}
@@ -75,7 +80,12 @@ func main() {
 		envConfigs["prod"] = prodEnv
 	}
 
-	// 6. Render for each environment and stage
+	// 6. Clean and recreate expected-output directory
+	if err := os.RemoveAll(outputDir); err != nil {
+		log.Fatalf("Failed to clean output directory: %v", err)
+	}
+
+	// 7. Render for each environment and stage
 	for envName, envSettings := range envConfigs {
 		envOutputDir := filepath.Join(outputDir, envName)
 		if err := os.MkdirAll(envOutputDir, 0755); err != nil {
