@@ -29,3 +29,35 @@ spec:
                     requests:
                         cpu: 500m
                         memory: 1Gi
+---
+---
+apiVersion: v1
+data:
+    APP_ENV: production
+    LOG_LEVEL: info
+    MAX_CONNECTIONS: "100"
+kind: ConfigMap
+metadata:
+    name: web-service-env-config
+    namespace: default
+---
+---
+apiVersion: v1
+data:
+    config: |
+        database:
+        host: localhost
+        port: 5432
+kind: ConfigMap
+metadata:
+    name: web-service-config--etc-app-config-yaml
+    namespace: default
+---
+---
+apiVersion: v1
+data:
+    config: '{"featureA": true, "featureB": false}'
+kind: ConfigMap
+metadata:
+    name: web-service-config--etc-app-feature-flags-json
+    namespace: default

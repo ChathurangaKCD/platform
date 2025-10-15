@@ -32,6 +32,7 @@ type Schema struct {
 type ResourceTemplate struct {
 	ID        string                 `yaml:"id"`
 	Condition string                 `yaml:"condition,omitempty"`
+	ForEach   string                 `yaml:"forEach,omitempty"`
 	Template  map[string]interface{} `yaml:"template"`
 }
 
@@ -86,7 +87,6 @@ type ComponentSpec struct {
 	Parameters    map[string]interface{} `yaml:"parameters,omitempty"`
 	Addons        []AddonInstance        `yaml:"addons,omitempty"`
 	Build         BuildSpec              `yaml:"build,omitempty"`
-	PodSelectors  map[string]string      `yaml:"podSelectors,omitempty"`
 }
 
 // AddonInstance represents an instance of an addon

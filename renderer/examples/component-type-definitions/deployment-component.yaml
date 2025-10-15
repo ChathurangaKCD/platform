@@ -50,3 +50,22 @@ spec:
                     limits:
                       cpu: ${spec.resources.limits.cpu}
                       memory: ${spec.resources.limits.memory}
+    - id: env-configs
+      condition: ${has(configurations.envs) && configurations.envs.size() > 0}
+      template:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: ${metadata.name}-env-config
+          namespace: ${metadata.namespace}
+        data: "${configurations.envs.transformMapEntry(i, e, {e.name: e.value})}"
+    - id: file-configs
+      forEach: ${configurations.files}
+      template:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: ${metadata.name}-config-${item.mountPath.replace('/', '-').replace('.', '-')}
+          namespace: ${metadata.namespace}
+        data:
+          config: ${item.content}

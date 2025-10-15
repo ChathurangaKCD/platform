@@ -25,20 +25,60 @@ func RenderBaseResources(
 			}
 		}
 
-		// Evaluate the template
-		rendered, err := EvaluateCELExpressions(resourceTemplate.Template, inputs)
-		if err != nil {
-			return nil, fmt.Errorf("failed to render resource %s: %w", resourceTemplate.ID, err)
-		}
+		// Handle forEach - render template for each item in array
+		if resourceTemplate.ForEach != "" {
+			// Evaluate forEach expression to get items
+			itemsResult, err := EvaluateCELExpressions(resourceTemplate.ForEach, inputs)
+			if err != nil {
+				return nil, fmt.Errorf("failed to evaluate forEach expression for resource %s: %w", resourceTemplate.ID, err)
+			}
 
-		renderedMap, ok := rendered.(map[string]interface{})
-		if !ok {
-			return nil, fmt.Errorf("rendered resource %s is not a map", resourceTemplate.ID)
-		}
+			items, ok := itemsResult.([]interface{})
+			if !ok {
+				return nil, fmt.Errorf("forEach expression for resource %s must return an array, got %T", resourceTemplate.ID, itemsResult)
+			}
 
-		// Clean up omitted fields
-		cleaned := RemoveOmittedFields(renderedMap).(map[string]interface{})
-		resources = append(resources, cleaned)
+			// Render template for each item
+			for _, item := range items {
+				// Create new inputs with current item
+				itemInputs := make(map[string]interface{})
+				for k, v := range inputs {
+					itemInputs[k] = v
+				}
+				itemInputs["item"] = item
+
+				// Evaluate the template with item context
+				rendered, err := EvaluateCELExpressions(resourceTemplate.Template, itemInputs)
+				if err != nil {
+					return nil, fmt.Errorf("failed to render forEach resource %s: %w", resourceTemplate.ID, err)
+				}
+
+				renderedMap, ok := rendered.(map[string]interface{})
+				if !ok {
+					return nil, fmt.Errorf("rendered forEach resource %s is not a map", resourceTemplate.ID)
+				}
+
+				// Clean up omitted fields
+				cleaned := RemoveOmittedFields(renderedMap).(map[string]interface{})
+				resources = append(resources, cleaned)
+			}
+		} else {
+			// Single resource (no forEach)
+			// Evaluate the template
+			rendered, err := EvaluateCELExpressions(resourceTemplate.Template, inputs)
+			if err != nil {
+				return nil, fmt.Errorf("failed to render resource %s: %w", resourceTemplate.ID, err)
+			}
+
+			renderedMap, ok := rendered.(map[string]interface{})
+			if !ok {
+				return nil, fmt.Errorf("rendered resource %s is not a map", resourceTemplate.ID)
+			}
+
+			// Clean up omitted fields
+			cleaned := RemoveOmittedFields(renderedMap).(map[string]interface{})
+			resources = append(resources, cleaned)
+		}
 	}
 
 	return resources, nil

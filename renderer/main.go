@@ -44,7 +44,17 @@ func main() {
 	}
 	fmt.Printf("Loaded %d addons\n", len(addons))
 
-	// 4. Clean and recreate schema output directory
+	// 4. Load additional context (pod selectors, configurations, secrets)
+	additionalCtxPath := filepath.Join(examplesDir, "additional_context.json")
+	additionalCtx, err := parser.LoadAdditionalContext(additionalCtxPath)
+	if err != nil {
+		log.Printf("Warning: Could not load additional context: %v", err)
+		additionalCtx = nil // Continue without additional context
+	} else {
+		fmt.Printf("Loaded additional context (pod selectors, configurations, secrets)\n")
+	}
+
+	// 5. Clean and recreate schema output directory
 	schemaOutputDir := filepath.Join(examplesDir, "schemas")
 	if err := os.RemoveAll(schemaOutputDir); err != nil {
 		log.Fatalf("Failed to clean schemas directory: %v", err)
@@ -97,7 +107,7 @@ func main() {
 		for _, stage := range stages {
 			fmt.Printf("  Rendering %s...\n", stage.Name)
 
-			resources, err := renderStage(ctd, component, addons, stage.AddonCount, envSettings)
+			resources, err := renderStage(ctd, component, addons, stage.AddonCount, envSettings, additionalCtx)
 			if err != nil {
 				log.Fatalf("Failed to render stage %s: %v", stage.Name, err)
 			}
@@ -152,9 +162,10 @@ func renderStage(
 	addons map[string]*types.Addon,
 	addonCount int,
 	envSettings *types.EnvSettings,
+	additionalCtx *parser.AdditionalContext,
 ) ([]map[string]interface{}, error) {
 	// 1. Build inputs by merging component and environment settings
-	inputs := renderer.BuildInputs(component, envSettings)
+	inputs := renderer.BuildInputs(component, envSettings, additionalCtx)
 
 	// 2. Render base resources from ComponentTypeDefinition
 	resources, err := renderer.RenderBaseResources(ctd, inputs)
@@ -171,7 +182,7 @@ func renderStage(
 		}
 
 		// Build addon-specific inputs
-		addonInputs := renderer.BuildAddonInputs(component, addonInstance, envSettings)
+		addonInputs := renderer.BuildAddonInputs(component, addonInstance, envSettings, additionalCtx)
 
 		// Apply addon
 		resources, err = renderer.ApplyAddon(resources, addon, addonInstance, addonInputs)

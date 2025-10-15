@@ -1,6 +1,7 @@
 package renderer
 
 import (
+	"github.com/chathurangada/cel_playground/renderer/pkg/parser"
 	"github.com/chathurangada/cel_playground/renderer/pkg/types"
 )
 
@@ -8,6 +9,7 @@ import (
 func BuildInputs(
 	component *types.Component,
 	envSettings *types.EnvSettings,
+	additionalCtx *parser.AdditionalContext,
 ) map[string]interface{} {
 	// Start with component parameters
 	spec := make(map[string]interface{})
@@ -28,9 +30,18 @@ func BuildInputs(
 			"namespace": component.Metadata.Namespace,
 			"labels":    component.Metadata.Labels,
 		},
-		"spec":         spec,
-		"build":        buildContextFromBuildSpec(component.Spec.Build),
-		"podSelectors": convertToInterfaceMap(component.Spec.PodSelectors),
+		"spec": spec,
+	}
+
+	// Add additional context if provided
+	if additionalCtx != nil {
+		inputs["podSelectors"] = convertToInterfaceMap(additionalCtx.PodSelectors)
+		inputs["build"] = buildContextFromAdditionalContext(additionalCtx.Build)
+		inputs["configurations"] = convertConfigurationData(additionalCtx.Configurations)
+		inputs["secrets"] = convertSecretData(additionalCtx.Secrets)
+	} else {
+		// Fallback to component build spec if no additional context
+		inputs["build"] = buildContextFromBuildSpec(component.Spec.Build)
 	}
 
 	return inputs
@@ -41,6 +52,7 @@ func BuildAddonInputs(
 	component *types.Component,
 	addonInstance types.AddonInstance,
 	envSettings *types.EnvSettings,
+	additionalCtx *parser.AdditionalContext,
 ) map[string]interface{} {
 	// Start with addon config
 	config := make(map[string]interface{})
@@ -63,16 +75,31 @@ func BuildAddonInputs(
 			"namespace": component.Metadata.Namespace,
 			"labels":    component.Metadata.Labels,
 		},
-		"spec":         config,
-		"instanceId":   addonInstance.InstanceID,
-		"build":        buildContextFromBuildSpec(component.Spec.Build),
-		"podSelectors": convertToInterfaceMap(component.Spec.PodSelectors),
+		"spec":       config,
+		"instanceId": addonInstance.InstanceID,
+	}
+
+	// Add additional context if provided
+	if additionalCtx != nil {
+		inputs["podSelectors"] = convertToInterfaceMap(additionalCtx.PodSelectors)
+		inputs["build"] = buildContextFromAdditionalContext(additionalCtx.Build)
+		inputs["configurations"] = convertConfigurationData(additionalCtx.Configurations)
+		inputs["secrets"] = convertSecretData(additionalCtx.Secrets)
+	} else {
+		// Fallback to component build spec if no additional context
+		inputs["build"] = buildContextFromBuildSpec(component.Spec.Build)
 	}
 
 	return inputs
 }
 
 func buildContextFromBuildSpec(build types.BuildSpec) map[string]interface{} {
+	return map[string]interface{}{
+		"image": build.Image,
+	}
+}
+
+func buildContextFromAdditionalContext(build parser.BuildData) map[string]interface{} {
 	return map[string]interface{}{
 		"image": build.Image,
 	}
@@ -85,6 +112,54 @@ func convertToInterfaceMap(m map[string]string) map[string]interface{} {
 		result[k] = v
 	}
 	return result
+}
+
+// convertConfigurationData converts ConfigurationData to map for CEL
+func convertConfigurationData(config parser.ConfigurationData) map[string]interface{} {
+	envs := make([]interface{}, len(config.Envs))
+	for i, env := range config.Envs {
+		envs[i] = map[string]interface{}{
+			"name":  env.Name,
+			"value": env.Value,
+		}
+	}
+
+	files := make([]interface{}, len(config.Files))
+	for i, file := range config.Files {
+		files[i] = map[string]interface{}{
+			"mountPath": file.MountPath,
+			"content":   file.Content,
+		}
+	}
+
+	return map[string]interface{}{
+		"envs":  envs,
+		"files": files,
+	}
+}
+
+// convertSecretData converts SecretData to map for CEL
+func convertSecretData(secrets parser.SecretData) map[string]interface{} {
+	envs := make([]interface{}, len(secrets.Envs))
+	for i, env := range secrets.Envs {
+		envs[i] = map[string]interface{}{
+			"name":     env.Name,
+			"valueRef": env.ValueRef,
+		}
+	}
+
+	files := make([]interface{}, len(secrets.Files))
+	for i, file := range secrets.Files {
+		files[i] = map[string]interface{}{
+			"mountPath": file.MountPath,
+			"valueRef":  file.ValueRef,
+		}
+	}
+
+	return map[string]interface{}{
+		"envs":  envs,
+		"files": files,
+	}
 }
 
 // DeepMerge deeply merges two maps, with values from 'override' taking precedence

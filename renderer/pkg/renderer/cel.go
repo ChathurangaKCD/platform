@@ -8,6 +8,7 @@ import (
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
+	"github.com/google/cel-go/ext"
 )
 
 // Sentinel value to mark fields for omission
@@ -38,6 +39,15 @@ func EvaluateCELExpressions(data interface{}, inputs map[string]interface{}) (in
 	case map[string]interface{}:
 		result := make(map[string]interface{})
 		for key, value := range v {
+			// Evaluate CEL expressions in the key
+			evaluatedKey := key
+			if keyResult, err := evaluateStringCEL(key, inputs); err == nil {
+				if keyStr, ok := keyResult.(string); ok {
+					evaluatedKey = keyStr
+				}
+			}
+
+			// Evaluate CEL expressions in the value
 			evaluated, err := EvaluateCELExpressions(value, inputs)
 			if err != nil {
 				return nil, err
@@ -49,7 +59,7 @@ func EvaluateCELExpressions(data interface{}, inputs map[string]interface{}) (in
 			if ptrVal, ok := evaluated.(*omitValue); ok && ptrVal == omitSentinel {
 				continue
 			}
-			result[key] = evaluated
+			result[evaluatedKey] = evaluated
 		}
 		return result, nil
 
@@ -151,28 +161,30 @@ func evaluateStringCEL(str string, inputs map[string]interface{}) (interface{}, 
 }
 
 func evaluateCELExpression(expression string, inputs map[string]interface{}) (interface{}, error) {
-	// Create CEL environment with custom functions
+	// Create CEL environment with custom functions and standard extensions
 	env, err := cel.NewEnv(
+		// Variables
 		cel.Variable("metadata", cel.DynType),
 		cel.Variable("spec", cel.DynType),
 		cel.Variable("build", cel.DynType),
 		cel.Variable("item", cel.DynType),
 		cel.Variable("instanceId", cel.DynType),
 		cel.Variable("podSelectors", cel.DynType),
+		cel.Variable("configurations", cel.DynType),
+		cel.Variable("secrets", cel.DynType),
+
+		// CEL optional types support
 		cel.OptionalTypes(),
-		cel.Function("join",
-			cel.MemberOverload("list_join_string", []*cel.Type{cel.ListType(cel.StringType), cel.StringType}, cel.StringType,
-				cel.BinaryBinding(func(lhs, rhs ref.Val) ref.Val {
-					list := lhs.Value().([]ref.Val)
-					separator := rhs.Value().(string)
-					var result []string
-					for _, item := range list {
-						result = append(result, item.Value().(string))
-					}
-					return types.String(strings.Join(result, separator))
-				}),
-			),
-		),
+
+		// Standard CEL extensions
+		ext.Strings(),               // String manipulation: charAt, indexOf, lastIndexOf, lowerAscii, upperAscii, replace, split, substring, trim, join
+		ext.Encoders(),              // Base64 encode/decode
+		ext.Math(),                  // Math functions: ceil, floor, round, etc.
+		ext.Lists(),                 // List operations: flatten, unique, etc.
+		ext.Sets(),                  // Set operations: contains, intersects, etc.
+		ext.TwoVarComprehensions(),  // Advanced list/map transformations: transformMap, transformMapEntry
+
+		// Custom functions
 		cel.Function("omit",
 			cel.Overload("omit", []*cel.Type{}, cel.DynType,
 				cel.FunctionBinding(func(values ...ref.Val) ref.Val {

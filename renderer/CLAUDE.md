@@ -59,7 +59,68 @@ renderer/
 
 ## Key Features
 
-### 1. Dynamic Stage Generation
+### 1. ForEach Support in ComponentTypeDefinition
+Render multiple resources from arrays using `forEach`:
+
+```yaml
+apiVersion: openchoreo.dev/v1alpha1
+kind: ComponentTypeDefinition
+metadata:
+  name: multi-service-component
+spec:
+  schema:
+    types:
+      Service:
+        name: string | required=true
+        port: integer | required=true
+        replicas: integer | default=1
+        image: string | required=true
+    parameters:
+      services: '[]Service | required=true'
+
+  resources:
+    # Create one Deployment per service in array
+    - id: service-deployments
+      forEach: ${spec.services}
+      template:
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: ${metadata.name}-${item.name}
+        spec:
+          replicas: ${item.replicas}
+          template:
+            spec:
+              containers:
+                - name: ${item.name}
+                  image: ${item.image}
+                  ports:
+                    - containerPort: ${item.port}
+
+    # Create one Service per service in array
+    - id: service-services
+      forEach: ${spec.services}
+      template:
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: ${metadata.name}-${item.name}
+        spec:
+          selector:
+            app: ${metadata.name}-${item.name}
+          ports:
+            - port: ${item.port}
+```
+
+**Result**: If `spec.services` contains 3 services, this generates 6 resources (3 Deployments + 3 Services).
+
+**Key Points**:
+- Access current item via `${item}` variable
+- Supports nested properties: `${item.name}`, `${item.replicas}`, etc.
+- Works with any CEL expression that returns an array
+- Can be combined with `condition` for conditional rendering
+
+### 2. Dynamic Stage Generation
 Stages are generated from the Component's addon list (not hardcoded):
 ```go
 // main.go:118-138
@@ -79,28 +140,71 @@ func generateStages(component *types.Component) []types.Stage {
 }
 ```
 
-### 2. CEL Expression Evaluation
-Supports CEL expressions with custom functions:
-- **Variables**: `metadata`, `spec`, `build`, `item`, `instanceId`
-- **Functions**: `omit()`, `has()`, `join()`
-- **Syntax**: `${metadata.name}`, `${spec.replicas}`
-- **Conditionals**: `${has(spec.command) && spec.command.size() > 0 ? spec.command : omit()}`
+### 3. CEL Expression Evaluation with Standard Extensions
+Supports CEL expressions with standard extensions and custom functions:
+
+**Variables**:
+- `metadata` - Component metadata (name, namespace, labels)
+- `spec` - Component/addon parameters
+- `build` - Build context (image)
+- `item` - Current item in forEach loops
+- `instanceId` - Addon instance ID
+- `podSelectors` - Platform-injected pod selectors
+- `configurations` - Platform-injected configurations (envs, files)
+- `secrets` - Platform-injected secrets (envs, files)
+
+**Standard CEL Extensions** (via `github.com/google/cel-go/ext`):
+- **Strings** (`ext.Strings()`): `charAt()`, `indexOf()`, `lastIndexOf()`, `lowerAscii()`, `upperAscii()`, `replace()`, `split()`, `substring()`, `trim()`, `join()`
+- **Encoders** (`ext.Encoders()`): `base64.encode()`, `base64.decode()`
+- **Math** (`ext.Math()`): `ceil()`, `floor()`, `round()`, `abs()`, `max()`, `min()`
+- **Lists** (`ext.Lists()`): `flatten()`, `unique()`, etc.
+- **Sets** (`ext.Sets()`): `contains()`, `intersects()`, etc.
+
+**Custom Functions**:
+- `omit()` - Omit fields from output
+- `merge(map, map)` - Deep merge two maps (override takes precedence)
+
+**Example Expressions**:
+- `${metadata.name}` - Access metadata
+- `${spec.replicas}` - Access parameters
+- `${build.image}` - Access build context
+- `${has(spec.command) && spec.command.size() > 0 ? spec.command : omit()}` - Conditional with omit
+- `${metadata.name.upperAscii()}` - String manipulation
+- `${['a', 'b', 'c'].join('-')}` - List join
+- `${merge({"app": metadata.name}, podSelectors)}` - Map merge
 
 ```go
-// renderer/cel.go:153-209
+// renderer/cel.go
 func evaluateCELExpression(expression string, inputs map[string]interface{}) (interface{}, error) {
     env, err := cel.NewEnv(
+        // Variables
         cel.Variable("metadata", cel.DynType),
         cel.Variable("spec", cel.DynType),
+        cel.Variable("build", cel.DynType),
+        cel.Variable("item", cel.DynType),
+        cel.Variable("instanceId", cel.DynType),
+        cel.Variable("podSelectors", cel.DynType),
+        cel.Variable("configurations", cel.DynType),
+        cel.Variable("secrets", cel.DynType),
+
         cel.OptionalTypes(),
+
+        // Standard CEL extensions
+        ext.Strings(),   // String functions
+        ext.Encoders(),  // Base64 encode/decode
+        ext.Math(),      // Math functions
+        ext.Lists(),     // List operations
+        ext.Sets(),      // Set operations
+
+        // Custom functions
         cel.Function("omit", ...),
-        // ... more functions
+        cel.Function("merge", ...),
     )
     // Parse, compile, and evaluate
 }
 ```
 
-### 3. JSON Schema Generation (Kro's simpleschema)
+### 4. JSON Schema Generation (Kro's simpleschema)
 Converts human-friendly schema syntax to OpenAPI v3:
 
 **Input (YAML)**:
@@ -141,7 +245,7 @@ func GenerateJSONSchema(ctd *types.ComponentTypeDefinition) (*extv1.JSONSchemaPr
 }
 ```
 
-### 4. JSONPatch with Array Filters
+### 5. JSONPatch with Array Filters
 Supports complex JSONPath expressions with array filters:
 
 **Path**: `/spec/template/spec/containers/[?(@.name=='app')]/volumeMounts/-`
@@ -167,7 +271,7 @@ func applyPathWithArrayFilter(target map[string]interface{}, path string, value 
 }
 ```
 
-### 5. Addon Composition
+### 6. Addon Composition
 Addons can:
 - **Create new resources** (e.g., PVC, ConfigMap)
 - **Patch existing resources** (e.g., add volumeMounts to containers)
@@ -217,7 +321,7 @@ spec:
           mountPath: ${spec.mountPath}
 ```
 
-### 6. Environment Settings
+### 7. Environment Settings
 Override parameters per environment:
 
 **Component**:
@@ -333,9 +437,10 @@ Each stage shows the incremental result of applying addons.
 
 ## Dependencies
 
-- **CEL**: `github.com/google/cel-go` - Expression language
-- **Kro**: `github.com/kubernetes-sigs/kro/pkg/simpleschema` - Schema conversion
-- **K8s**: `k8s.io/apiextensions-apiserver` - OpenAPI types
+- **CEL**: `github.com/google/cel-go v0.26.1` - Expression language with optional types support
+- **CEL Extensions**: `github.com/google/cel-go/ext` - Standard CEL extensions (Strings, Encoders, Math, Lists, Sets)
+- **Kro**: `github.com/kubernetes-sigs/kro/pkg/simpleschema` - Human-friendly schema conversion
+- **K8s**: `k8s.io/apiextensions-apiserver v0.31.0` - OpenAPI types
 - **YAML**: `gopkg.in/yaml.v3` - YAML parsing
 
 ## Testing

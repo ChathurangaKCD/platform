@@ -5,7 +5,7 @@ go 1.24.0
 toolchain go1.24.3
 
 require (
-	github.com/google/cel-go v0.24.1
+	github.com/google/cel-go v0.26.1
 	github.com/kubernetes-sigs/kro v0.0.0
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/apiextensions-apiserver v0.31.0
@@ -14,7 +14,7 @@ require (
 replace github.com/kubernetes-sigs/kro => /Users/chathurangada/projects/kro
 
 require (
-	cel.dev/expr v0.19.1 // indirect
+	cel.dev/expr v0.24.0 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.7.0 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
