@@ -11,6 +11,7 @@ import (
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
+	"github.com/google/cel-go/ext"
 	"gopkg.in/yaml.v3"
 )
 
@@ -111,7 +112,7 @@ func evaluateCELExpressions(data interface{}, inputs map[string]interface{}) (in
 		if err != nil {
 			return nil, err
 		}
-		
+
 		// If the entire value is a CEL expression (after trimming), return the raw result
 		trimmed := strings.TrimSpace(v)
 		if strings.HasPrefix(trimmed, "${") && strings.HasSuffix(trimmed, "}") && result != v {
@@ -122,10 +123,10 @@ func evaluateCELExpressions(data interface{}, inputs map[string]interface{}) (in
 				return result, nil
 			}
 		}
-		
+
 		// For mixed content strings, we need to keep them as strings
 		return result, nil
-		
+
 	case map[string]interface{}:
 		result := make(map[string]interface{})
 		for key, value := range v {
@@ -168,7 +169,7 @@ func evaluateStringCEL(str string, inputs map[string]interface{}) (interface{}, 
 			break
 		}
 		start += i
-		
+
 		// Find matching closing brace
 		braceCount := 1
 		pos := start + 2
@@ -180,7 +181,7 @@ func evaluateStringCEL(str string, inputs map[string]interface{}) (interface{}, 
 			}
 			pos++
 		}
-		
+
 		if braceCount == 0 {
 			fullMatch := str[start:pos]
 			expression := str[start+2 : pos-1]
@@ -207,12 +208,12 @@ func evaluateStringCEL(str string, inputs map[string]interface{}) (interface{}, 
 	for _, match := range matches {
 		fullMatch := match[0]
 		expression := match[1]
-		
+
 		evaluated, err := evaluateCELExpression(expression, inputs)
 		if err != nil {
 			return nil, err
 		}
-		
+
 		// Convert result to string for replacement
 		var evaluatedStr string
 		switch v := evaluated.(type) {
@@ -245,6 +246,9 @@ func evaluateCELExpression(expression string, inputs map[string]interface{}) (in
 		cel.Variable("metadata", cel.DynType),
 		cel.Variable("spec", cel.DynType),
 		cel.Variable("build", cel.DynType),
+		cel.Variable(("configurations"), cel.DynType),
+		// Standard CEL extensions
+		ext.TwoVarComprehensions(),
 		cel.Function("join",
 			cel.MemberOverload("list_join_string", []*cel.Type{cel.ListType(cel.StringType), cel.StringType}, cel.StringType,
 				cel.BinaryBinding(func(lhs, rhs ref.Val) ref.Val {
