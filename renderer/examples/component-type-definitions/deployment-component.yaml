@@ -32,12 +32,12 @@ spec:
         spec:
           replicas: ${spec.replicas}
           selector:
-            matchLabels:
-              app: ${metadata.name}
+            matchLabels: |
+              ${podSelectors}
           template:
             metadata:
-              labels:
-                app: ${metadata.name}
+              labels: |
+                ${merge({"app": metadata.name}, podSelectors)}
             spec:
               containers:
                 - name: app

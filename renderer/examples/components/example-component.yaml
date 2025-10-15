@@ -71,3 +71,9 @@ spec:
   # Build context (platform-injected)
   build:
     image: gcr.io/my-project/web-service:v1.0.0
+
+  # Pod selectors (platform-injected with openchoreo prefix to avoid conflicts)
+  podSelectors:
+    openchoreo.io/component-id: web-service-12345
+    openchoreo.io/project-id: my-project-67890
+    openchoreo.io/environment: production

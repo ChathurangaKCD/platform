@@ -7,11 +7,16 @@ spec:
     replicas: 2
     selector:
         matchLabels:
-            app: web-service
+            openchoreo.io/component-id: web-service-12345
+            openchoreo.io/environment: production
+            openchoreo.io/project-id: my-project-67890
     template:
         metadata:
             labels:
                 app: web-service
+                openchoreo.io/component-id: web-service-12345
+                openchoreo.io/environment: production
+                openchoreo.io/project-id: my-project-67890
         spec:
             containers:
                 - image: gcr.io/my-project/web-service:v1.0.0

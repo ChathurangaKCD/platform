@@ -158,6 +158,7 @@ func evaluateCELExpression(expression string, inputs map[string]interface{}) (in
 		cel.Variable("build", cel.DynType),
 		cel.Variable("item", cel.DynType),
 		cel.Variable("instanceId", cel.DynType),
+		cel.Variable("podSelectors", cel.DynType),
 		cel.OptionalTypes(),
 		cel.Function("join",
 			cel.MemberOverload("list_join_string", []*cel.Type{cel.ListType(cel.StringType), cel.StringType}, cel.StringType,
@@ -176,6 +177,55 @@ func evaluateCELExpression(expression string, inputs map[string]interface{}) (in
 			cel.Overload("omit", []*cel.Type{}, cel.DynType,
 				cel.FunctionBinding(func(values ...ref.Val) ref.Val {
 					return types.NewErr("__OMIT_FIELD__")
+				}),
+			),
+		),
+		cel.Function("merge",
+			cel.Overload("merge_map_map", []*cel.Type{cel.MapType(cel.StringType, cel.DynType), cel.MapType(cel.StringType, cel.DynType)}, cel.MapType(cel.StringType, cel.DynType),
+				cel.BinaryBinding(func(lhs, rhs ref.Val) ref.Val {
+					// Get underlying values
+					baseVal := lhs.Value()
+					overrideVal := rhs.Value()
+
+					// Convert to string maps
+					baseMap := make(map[string]interface{})
+					overrideMap := make(map[string]interface{})
+
+					// Handle different map representations
+					switch b := baseVal.(type) {
+					case map[string]interface{}:
+						baseMap = b
+					case map[ref.Val]ref.Val:
+						for k, v := range b {
+							baseMap[string(k.(types.String))] = v.Value()
+						}
+					}
+
+					switch o := overrideVal.(type) {
+					case map[string]interface{}:
+						overrideMap = o
+					case map[ref.Val]ref.Val:
+						for k, v := range o {
+							overrideMap[string(k.(types.String))] = v.Value()
+						}
+					}
+
+					// Merge maps
+					result := make(map[string]interface{})
+					for k, v := range baseMap {
+						result[k] = v
+					}
+					for k, v := range overrideMap {
+						result[k] = v
+					}
+
+					// Convert back to CEL map
+					celResult := make(map[ref.Val]ref.Val)
+					for k, v := range result {
+						celResult[types.String(k)] = types.DefaultTypeAdapter.NativeToValue(v)
+					}
+
+					return types.NewDynamicMap(types.DefaultTypeAdapter, celResult)
 				}),
 			),
 		),

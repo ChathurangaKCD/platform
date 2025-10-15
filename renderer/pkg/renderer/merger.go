@@ -28,8 +28,9 @@ func BuildInputs(
 			"namespace": component.Metadata.Namespace,
 			"labels":    component.Metadata.Labels,
 		},
-		"spec":  spec,
-		"build": buildContextFromBuildSpec(component.Spec.Build),
+		"spec":         spec,
+		"build":        buildContextFromBuildSpec(component.Spec.Build),
+		"podSelectors": convertToInterfaceMap(component.Spec.PodSelectors),
 	}
 
 	return inputs
@@ -62,9 +63,10 @@ func BuildAddonInputs(
 			"namespace": component.Metadata.Namespace,
 			"labels":    component.Metadata.Labels,
 		},
-		"spec":       config,
-		"instanceId": addonInstance.InstanceID,
-		"build":      buildContextFromBuildSpec(component.Spec.Build),
+		"spec":         config,
+		"instanceId":   addonInstance.InstanceID,
+		"build":        buildContextFromBuildSpec(component.Spec.Build),
+		"podSelectors": convertToInterfaceMap(component.Spec.PodSelectors),
 	}
 
 	return inputs
@@ -74,6 +76,15 @@ func buildContextFromBuildSpec(build types.BuildSpec) map[string]interface{} {
 	return map[string]interface{}{
 		"image": build.Image,
 	}
+}
+
+// convertToInterfaceMap converts map[string]string to map[string]interface{}
+func convertToInterfaceMap(m map[string]string) map[string]interface{} {
+	result := make(map[string]interface{})
+	for k, v := range m {
+		result[k] = v
+	}
+	return result
 }
 
 // DeepMerge deeply merges two maps, with values from 'override' taking precedence
