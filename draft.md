@@ -519,3 +519,75 @@ spec:
         size: 200Gi # Much larger in prod
         storageClass: premium
 ```
+
+## Deployment Flow and Environment Promotion
+
+OpenChoreo separates **promotable content** from **environment-specific overrides** to enable safe, auditable deployments across environments. This uses EnvSettings (introduced earlier) along with **ComponentEnvSnapshot**, a new resource containing full copies of ComponentTypeDefinition, Component, Addons, and Workload.
+
+### How It Works
+
+**Deployment**: When a Component, ComponentTypeDefinition, Addon, or Workload is updated, a ComponentEnvSnapshot is created or updated in the first environment of the deployment pipeline. The snapshot is rendered with that environment's EnvSettings to produce a Release containing final Kubernetes manifests. Changes to either the snapshot or EnvSettings trigger Release updates.
+
+**Promotion**: Promotion copies the snapshot content to a target environment, where it's rendered with that environment's EnvSettings. The same snapshot content produces different Releases based on each environment's settings (e.g., 1 replica in dev, 10 in prod).
+
+**Key Constraint**: Changes are automatically deployed only to the first environment. Other environments remain stable until explicitly promoted.
+
+### Benefits
+
+This separation provides clear boundaries between promotable content and environment-specific configuration, enforces progressive rollout workflows, and ensures identical component definitions across environments with only intentional configuration differences.
+
+### ComponentEnvSnapshot Structure
+
+```yaml
+apiVersion: openchoreo.dev/v1alpha1
+kind: ComponentEnvSnapshot
+metadata:
+  name: checkout-service-dev
+spec:
+  owner:
+    componentName: checkout-service
+  environment: production
+
+  # Full embedded copies (not references!)
+  componentTypeDefinition:
+    apiVersion: openchoreo.dev/v1alpha1
+    kind: ComponentTypeDefinition
+    metadata:
+      name: web-app
+    spec:
+      workloadType: deployment
+      schema: { ... }
+      resources: { ... }
+
+  component:
+    apiVersion: openchoreo.dev/v1alpha2
+    kind: Component
+    metadata:
+      name: checkout-service
+    spec:
+      componentType: deployment/web-app
+      parameters: { ... }
+      addons:
+        - name: persistent-volume-claim
+          instanceId: app-data
+          config: { ... }
+
+  addons:
+    - apiVersion: openchoreo.dev/v1alpha1
+      kind: Addon
+      metadata:
+        name: persistent-volume-claim
+      spec:
+        creates: [...]
+        patches: [...]
+
+  workload:
+    apiVersion: openchoreo.dev/v1alpha1
+    kind: Workload
+    metadata:
+      name: checkout-service
+    spec:
+      image: gcr.io/project/checkout-service:v1.2.3
+      endpoints: [...]
+      connections: [...]
+```
