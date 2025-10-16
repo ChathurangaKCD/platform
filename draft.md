@@ -56,7 +56,7 @@ As a result, platform engineers lack the control needed to enforce organizationa
 
 - **Support multiple primary workload resources**: Each ComponentTypeDefinition is limited to a single primary workload resource. The ComponentTypeDefinition must declare a `workloadType` field (one of: `deployment`, `statefulset`, `cronjob`, `job`), and the primary workload resource's `id` must match this `workloadType`. Additional supporting resources (Services, HPAs, PDBs, etc.) can be defined in the resources section and via addons.
 
-- **Backwards compatibility with existing component types**: Migrating existing Services, WebApps, and ScheduledTasks to the new model is not covered in this proposal and will be addressed separately.
+- **Backwards compatibility with existing component types**: Migrating existing Services, WebApps, and ScheduledTasks to the new model is not covered in this proposal.
 
 ---
 
