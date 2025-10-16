@@ -38,6 +38,12 @@ func RenderBaseResources(
 				return nil, fmt.Errorf("forEach expression for resource %s must return an array, got %T", resourceTemplate.ID, itemsResult)
 			}
 
+			// Determine variable name (default to "item" if not specified)
+			varName := resourceTemplate.Var
+			if varName == "" {
+				varName = "item"
+			}
+
 			// Render template for each item
 			for _, item := range items {
 				// Create new inputs with current item
@@ -45,7 +51,7 @@ func RenderBaseResources(
 				for k, v := range inputs {
 					itemInputs[k] = v
 				}
-				itemInputs["item"] = item
+				itemInputs[varName] = item
 
 				// Evaluate the template with item context
 				rendered, err := EvaluateCELExpressions(resourceTemplate.Template, itemInputs)
@@ -159,6 +165,12 @@ func applyForEachPatch(
 		return fmt.Errorf("forEach expression must return an array, got %T", itemsResult)
 	}
 
+	// Determine variable name (default to "item" if not specified)
+	varName := patchSpec.Var
+	if varName == "" {
+		varName = "item"
+	}
+
 	// Apply patch for each item
 	for _, item := range items {
 		// Create new inputs with current item
@@ -166,7 +178,7 @@ func applyForEachPatch(
 		for k, v := range inputs {
 			itemInputs[k] = v
 		}
-		itemInputs["item"] = item
+		itemInputs[varName] = item
 
 		// Find target resources
 		targets := FindTargetResources(resources, patchSpec.Target)

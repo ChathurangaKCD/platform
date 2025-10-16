@@ -161,20 +161,19 @@ func evaluateStringCEL(str string, inputs map[string]interface{}) (interface{}, 
 }
 
 func evaluateCELExpression(expression string, inputs map[string]interface{}) (interface{}, error) {
-	// Create CEL environment with custom functions and standard extensions
-	env, err := cel.NewEnv(
-		// Variables
-		cel.Variable("metadata", cel.DynType),
-		cel.Variable("spec", cel.DynType),
-		cel.Variable("build", cel.DynType),
-		cel.Variable("item", cel.DynType),
-		cel.Variable("instanceId", cel.DynType),
-		cel.Variable("podSelectors", cel.DynType),
-		cel.Variable("configurations", cel.DynType),
-		cel.Variable("secrets", cel.DynType),
-
+	// Build variable declarations dynamically from inputs
+	envOptions := []cel.EnvOption{
 		// CEL optional types support
 		cel.OptionalTypes(),
+	}
+
+	// Register all input keys as variables
+	for key := range inputs {
+		envOptions = append(envOptions, cel.Variable(key, cel.DynType))
+	}
+
+	// Add standard extensions and custom functions
+	envOptions = append(envOptions,
 
 		// Standard CEL extensions
 		ext.Strings(),               // String manipulation: charAt, indexOf, lastIndexOf, lowerAscii, upperAscii, replace, split, substring, trim, join
@@ -242,6 +241,9 @@ func evaluateCELExpression(expression string, inputs map[string]interface{}) (in
 			),
 		),
 	)
+
+	// Create CEL environment with dynamic variables and extensions
+	env, err := cel.NewEnv(envOptions...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create CEL environment: %v", err)
 	}

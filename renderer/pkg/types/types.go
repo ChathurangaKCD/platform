@@ -33,6 +33,7 @@ type ResourceTemplate struct {
 	ID        string                 `yaml:"id"`
 	Condition string                 `yaml:"condition,omitempty"`
 	ForEach   string                 `yaml:"forEach,omitempty"`
+	Var       string                 `yaml:"var,omitempty"`
 	Template  map[string]interface{} `yaml:"template"`
 }
 
@@ -55,6 +56,7 @@ type AddonSpec struct {
 // PatchSpec defines a patch operation
 type PatchSpec struct {
 	ForEach string                 `yaml:"forEach,omitempty"`
+	Var     string                 `yaml:"var,omitempty"`
 	Target  TargetSpec             `yaml:"target"`
 	Patch   Patch                  `yaml:"patch"`
 }

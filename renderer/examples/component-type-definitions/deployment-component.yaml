@@ -61,11 +61,12 @@ spec:
         data: "${configurations.envs.transformMapEntry(i, e, {e.name: e.value})}"
     - id: file-configs
       forEach: ${configurations.files}
+      var: configFile
       template:
         apiVersion: v1
         kind: ConfigMap
         metadata:
-          name: ${metadata.name}-config-${item.mountPath.replace('/', '-').replace('.', '-')}
+          name: ${metadata.name}-config-${configFile.mountPath.replace('/', '-').replace('.', '-')}
           namespace: ${metadata.namespace}
         data:
-          config: ${item.content}
+          config: ${configFile.content}
