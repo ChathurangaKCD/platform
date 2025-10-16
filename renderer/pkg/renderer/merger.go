@@ -152,6 +152,7 @@ func convertSecretData(secrets parser.SecretData) map[string]interface{} {
 	files := make([]interface{}, len(secrets.Files))
 	for i, file := range secrets.Files {
 		files[i] = map[string]interface{}{
+			"name":      file.Name,
 			"mountPath": file.MountPath,
 			"valueRef":  file.ValueRef,
 		}

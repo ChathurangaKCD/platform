@@ -52,6 +52,7 @@ type SecretEnvVar struct {
 
 // SecretFile represents a secret file reference to mount
 type SecretFile struct {
+	Name      string `json:"name"`
 	MountPath string `json:"mountPath"`
 	ValueRef  string `json:"valueRef"`
 }

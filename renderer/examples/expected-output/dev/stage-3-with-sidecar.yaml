@@ -22,6 +22,8 @@ spec:
                 - envFrom:
                     - configMapRef:
                         name: web-service-env-config
+                    - secretRef:
+                        name: web-service-secret-envs
                   image: gcr.io/my-project/web-service:v1.0.0
                   imagePullPolicy: IfNotPresent
                   name: app
@@ -39,6 +41,12 @@ spec:
                     - mountPath: /etc/app/feature-flags.json
                       name: feature-flags
                       subPath: config
+                    - mountPath: /etc/secrets/tls.crt
+                      name: tls-cert
+                      subPath: tls-cert
+                    - mountPath: /etc/secrets/tls.key
+                      name: tls.key
+                      subPath: tls.key
                     - mountPath: /app/data
                       name: app-data-vol
                       readOnly: false
@@ -64,6 +72,12 @@ spec:
                 - configMap:
                     name: web-service-config-feature-flags
                   name: feature-flags
+                - name: tls-cert
+                  secret:
+                    secretName: web-service-secret-tls-cert
+                - name: tls.key
+                  secret:
+                    secretName: web-service-secret-tls.key
                 - name: app-data-vol
                   persistentVolumeClaim:
                     claimName: web-service-app-data
@@ -99,6 +113,41 @@ kind: ConfigMap
 metadata:
     name: web-service-config-feature-flags
     namespace: default
+---
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecretStore
+metadata:
+    name: web-service-secret-envs
+    namespace: default
+spec:
+    data:
+        - key: DATABASE_PASSWORD
+          valueRef: db-credentials/password
+        - key: API_KEY
+          valueRef: api-secrets/key
+---
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecretStore
+metadata:
+    name: web-service-secret-tls-cert
+    namespace: default
+spec:
+    data:
+        - key: tls-cert
+          valueRef: r1234
+---
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecretStore
+metadata:
+    name: web-service-secret-tls.key
+    namespace: default
+spec:
+    data:
+        - key: tls.key
+          valueRef: r1235
 ---
 ---
 apiVersion: v1

@@ -213,10 +213,38 @@ func writeOutput(resources []map[string]interface{}, outputPath string) error {
 				return err
 			}
 		}
+		// Debug: check for unexpected types in resource
+		if err := checkForUnexpectedTypes(resource, ""); err != nil {
+			return fmt.Errorf("unexpected type in resource %d: %w", i, err)
+		}
 		if err := encoder.Encode(resource); err != nil {
 			return fmt.Errorf("failed to encode resource: %w", err)
 		}
 	}
 
+	return nil
+}
+
+func checkForUnexpectedTypes(data interface{}, path string) error {
+	switch v := data.(type) {
+	case map[string]interface{}:
+		for k, val := range v {
+			newPath := path + "." + k
+			if err := checkForUnexpectedTypes(val, newPath); err != nil {
+				return err
+			}
+		}
+	case []interface{}:
+		for i, val := range v {
+			newPath := fmt.Sprintf("%s[%d]", path, i)
+			if err := checkForUnexpectedTypes(val, newPath); err != nil {
+				return err
+			}
+		}
+	case string, int, int64, float64, bool, nil:
+		// These are fine
+	default:
+		return fmt.Errorf("unexpected type %T at path %s: %+v", v, path, v)
+	}
 	return nil
 }

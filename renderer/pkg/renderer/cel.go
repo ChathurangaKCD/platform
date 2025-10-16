@@ -302,7 +302,33 @@ func convertCELValue(val ref.Val) interface{} {
 			}
 			return result
 		case []interface{}:
-			return list
+			// Recursively convert items in case they contain CEL values
+			result := make([]interface{}, len(list))
+			for i, item := range list {
+				switch typed := item.(type) {
+				case ref.Val:
+					result[i] = convertCELValue(typed)
+				case map[ref.Val]ref.Val:
+					// Convert CEL map
+					m := make(map[string]interface{})
+					for k, v := range typed {
+						keyStr, ok := k.Value().(string)
+						if !ok {
+							keyStr = fmt.Sprintf("%v", k.Value())
+						}
+						switch vTyped := v.(type) {
+						case ref.Val:
+							m[keyStr] = convertCELValue(vTyped)
+						default:
+							m[keyStr] = v.Value()
+						}
+					}
+					result[i] = m
+				default:
+					result[i] = item
+				}
+			}
+			return result
 		default:
 			return val.Value()
 		}
@@ -315,12 +341,29 @@ func convertCELValue(val ref.Val) interface{} {
 			}
 			return result
 		case map[string]interface{}:
-			return m
+			// Recursively convert nested maps
+			result := make(map[string]interface{})
+			for k, v := range m {
+				switch nested := v.(type) {
+				case ref.Val:
+					result[k] = convertCELValue(nested)
+				default:
+					result[k] = v
+				}
+			}
+			return result
 		default:
 			return val.Value()
 		}
 	default:
-		return val.Value()
+		// Try to convert to a safe type
+		v := val.Value()
+		switch typed := v.(type) {
+		case ref.Val:
+			return convertCELValue(typed)
+		default:
+			return v
+		}
 	}
 }
 
