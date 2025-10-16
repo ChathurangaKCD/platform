@@ -136,15 +136,15 @@ spec:
         apiVersion: apps/v1
         kind: Deployment
         metadata:
-          name: ${component.metadata.name}
+          name: ${context.metadata.name}
         spec:
           selector:
             matchLabels: |
-              ${component.podSelectors}
+              ${context.podSelectors}
           template:
             metadata:
               labels: |
-                ${merge({"app": component.metadata.name}, component.podSelectors)}
+                ${merge({"app": context.metadata.name}, context.podSelectors)}
             spec:
               terminationGracePeriodSeconds: ${spec.lifecycle.terminationGracePeriodSeconds}
               containers:
@@ -169,12 +169,12 @@ spec:
         apiVersion: autoscaling/v2
         kind: HorizontalPodAutoscaler
         metadata:
-          name: ${component.metadata.name}
+          name: ${context.metadata.name}
         spec:
           scaleTargetRef:
             apiVersion: apps/v1
             kind: Deployment
-            name: ${component.metadata.name}
+            name: ${context.metadata.name}
           minReplicas: ${spec.autoscaling.minReplicas}
           maxReplicas: ${spec.autoscaling.maxReplicas}
           metrics:
@@ -191,21 +191,54 @@ spec:
         apiVersion: policy/v1
         kind: PodDisruptionBudget
         metadata:
-          name: ${component.metadata.name}
+          name: ${context.metadata.name}
         spec:
           selector:
             matchLabels:
-              app: ${component.metadata.name}
+              app: ${context.metadata.name}
           minAvailable: 1
 ```
 
 **Key insight:** Templates access data from different sources at different times:
 
-- `${component.metadata.*}` - Component instance metadata (name, namespace, labels, annotations)
-- `${component.podSelectors}` - Platform-injected pod selectors (e.g., `openchoreo.io/component-id`, `openchoreo.io/environment`, `openchoreo.io/project-id`) for component identity and environment tracking
+- `${context.metadata.*}` - Component instance metadata (name, namespace, labels, annotations)
+- `${context.podSelectors}` - Platform-injected pod selectors (e.g., `openchoreo.io/component-id`, `openchoreo.io/environment`, `openchoreo.io/project-id`) for component identity and environment tracking
 - `${spec.*}` - Developer configuration from Component (merged parameters + envOverrides)
 - `${build.*}` - Build context from Component's build field
 - `${workload.*}` - Application metadata extracted from source repo at build time
+
+**forEach support for generating multiple resources:**
+
+ComponentTypeDefinitions support `forEach` to generate multiple instances of a resource template. This is useful for scenarios like creating multiple ConfigMaps from a list of configurations:
+
+```yaml
+  resources:
+    - id: config
+      forEach: ${spec.configurations}
+      var: config
+      template:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: ${context.metadata.name}-${config.name}
+        data: |
+          ${config.data}
+```
+
+In this example, if the controller injects configurations into the template context:
+```yaml
+configurations:
+  - name: app-config
+    data:
+      LOG_LEVEL: "info"
+      FEATURE_FLAG: "enabled"
+  - name: db-config
+    data:
+      DB_HOST: "postgres.default.svc"
+      DB_PORT: "5432"
+```
+
+The system will generate two ConfigMaps: `checkout-service-app-config` and `checkout-service-db-config`, each with their respective data.
 
 ### 2. Addons for Composability
 
@@ -368,7 +401,7 @@ spec:
     - apiVersion: v1
       kind: PersistentVolumeClaim
       metadata:
-        name: ${component.metadata.name}-${instanceId}
+        name: ${context.metadata.name}-${instanceId}
       spec:
         accessModes:
           - ReadWriteOnce
@@ -387,7 +420,7 @@ spec:
         value:
           name: ${spec.volumeName}
           persistentVolumeClaim:
-            claimName: ${component.metadata.name}-${instanceId}
+            claimName: ${context.metadata.name}-${instanceId}
 
     # Mount the PVC into the developer-specified container at the mountPath
     - target:
