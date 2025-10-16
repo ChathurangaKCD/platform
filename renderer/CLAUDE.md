@@ -16,21 +16,23 @@ This renderer implements a declarative component system that allows:
 ```
 renderer/
 ├── main.go                          # CLI entry point with dynamic stage generation
-├── go.mod                          # Go module with kro dependency
+├── go.mod                          # Go module dependencies (cel-go v0.26.1, kro, etc.)
 ├── pkg/
 │   ├── types/
-│   │   └── types.go                # CRD struct definitions
+│   │   └── types.go                # CRD struct definitions (ResourceTemplate with forEach & var)
 │   ├── parser/
 │   │   ├── component.go            # Load ComponentTypeDefinition & Component
 │   │   ├── addon.go                # Load Addon definitions
 │   │   ├── envsettings.go          # Load EnvSettings
+│   │   ├── additional_context.go   # Load platform-injected context (build, secrets, configs)
 │   │   └── schema.go               # Generate JSON schemas using kro's simpleschema
 │   └── renderer/
-│       ├── cel.go                  # CEL expression evaluation with omit() support
-│       ├── merger.go               # Merge component params with EnvSettings
+│       ├── cel.go                  # CEL expression evaluation with extensions & custom functions
+│       ├── merger.go               # Merge component params with EnvSettings & additional context
 │       ├── patcher.go              # JSONPatch with array filter support
-│       └── composer.go             # Render base resources and apply addons
+│       └── composer.go             # Render base resources (with forEach) and apply addons
 └── examples/
+    ├── additional_context.json     # Platform-injected context (build, podSelectors, secrets, configs)
     ├── component-type-definitions/
     │   └── deployment-component.yaml
     ├── addons/
@@ -47,78 +49,52 @@ renderer/
     │   ├── persistent-volume-claim-schema.json
     │   ├── sidecar-container-schema.json
     │   └── emptydir-volume-schema.json
-    └── expected-output/            # Generated YAML manifests
+    └── expected-output/            # Generated YAML manifests (7 resources per stage)
         ├── no-env/
         ├── dev/
         └── prod/
-            ├── stage-1-base.yaml
-            ├── stage-2-with-pvc.yaml
-            ├── stage-3-with-sidecar.yaml
-            └── stage-4-with-emptydir.yaml
+            ├── stage-1-base.yaml        # Deployment + ConfigMaps + ExternalSecretStores
+            ├── stage-2-with-pvc.yaml    # + PersistentVolumeClaim
+            ├── stage-3-with-sidecar.yaml # + Sidecar container
+            └── stage-4-with-emptydir.yaml # + EmptyDir volume
 ```
 
 ## Key Features
 
-### 1. ForEach Support in ComponentTypeDefinition
-Render multiple resources from arrays using `forEach`:
+### 1. ForEach Support with Custom Variable Names
+Render multiple resources from arrays using `forEach` with custom variable names:
 
 ```yaml
 apiVersion: openchoreo.dev/v1alpha1
 kind: ComponentTypeDefinition
 metadata:
-  name: multi-service-component
+  name: deployment-component
 spec:
-  schema:
-    types:
-      Service:
-        name: string | required=true
-        port: integer | required=true
-        replicas: integer | default=1
-        image: string | required=true
-    parameters:
-      services: '[]Service | required=true'
-
   resources:
-    # Create one Deployment per service in array
-    - id: service-deployments
-      forEach: ${spec.services}
-      template:
-        apiVersion: apps/v1
-        kind: Deployment
-        metadata:
-          name: ${metadata.name}-${item.name}
-        spec:
-          replicas: ${item.replicas}
-          template:
-            spec:
-              containers:
-                - name: ${item.name}
-                  image: ${item.image}
-                  ports:
-                    - containerPort: ${item.port}
-
-    # Create one Service per service in array
-    - id: service-services
-      forEach: ${spec.services}
+    # Create ConfigMap per configuration file
+    - id: file-configs
+      forEach: ${configurations.files}
+      var: configFile  # Custom variable name instead of 'item'
       template:
         apiVersion: v1
-        kind: Service
+        kind: ConfigMap
         metadata:
-          name: ${metadata.name}-${item.name}
-        spec:
-          selector:
-            app: ${metadata.name}-${item.name}
-          ports:
-            - port: ${item.port}
+          name: ${metadata.name}-config-${configFile.name}
+        data:
+          config: ${configFile.content}
 ```
 
-**Result**: If `spec.services` contains 3 services, this generates 6 resources (3 Deployments + 3 Services).
+**Result**: If `configurations.files` contains 2 files, this generates 2 ConfigMaps.
 
 **Key Points**:
-- Access current item via `${item}` variable
-- Supports nested properties: `${item.name}`, `${item.replicas}`, etc.
-- Works with any CEL expression that returns an array
-- Can be combined with `condition` for conditional rendering
+- **Custom variable names**: Use `var: configFile` instead of default `item`
+- **Dynamic CEL variables**: All input keys are automatically registered as CEL variables
+- **Semantic naming**: Use meaningful names like `service`, `config`, `mount` instead of `item`
+- **Nested properties**: Access `${configFile.name}`, `${configFile.content}`, etc.
+- **Works with any CEL expression** that returns an array
+- **Combinable with `condition`** for conditional rendering
+
+**Default behavior**: If `var` is omitted, defaults to `item` for backward compatibility
 
 ### 2. Dynamic Stage Generation
 Stages are generated from the Component's addon list (not hardcoded):
@@ -146,32 +122,39 @@ Supports CEL expressions with standard extensions and custom functions:
 **Variables**:
 - `metadata` - Component metadata (name, namespace, labels)
 - `spec` - Component/addon parameters
-- `build` - Build context (image)
-- `item` - Current item in forEach loops
+- `build` - Build context (image) from additional_context.json
+- `podSelectors` - Platform-injected pod selectors from additional_context.json
+- `configurations` - Platform-injected configurations (envs, files) from additional_context.json
+- `secrets` - Platform-injected secrets (envs, files) from additional_context.json
 - `instanceId` - Addon instance ID
-- `podSelectors` - Platform-injected pod selectors
-- `configurations` - Platform-injected configurations (envs, files)
-- `secrets` - Platform-injected secrets (envs, files)
+- **Dynamic forEach variables** - Custom variable names defined via `var` field
 
-**Standard CEL Extensions** (via `github.com/google/cel-go/ext`):
+**Standard CEL Extensions** (via `github.com/google/cel-go/ext v0.26.1`):
 - **Strings** (`ext.Strings()`): `charAt()`, `indexOf()`, `lastIndexOf()`, `lowerAscii()`, `upperAscii()`, `replace()`, `split()`, `substring()`, `trim()`, `join()`
 - **Encoders** (`ext.Encoders()`): `base64.encode()`, `base64.decode()`
 - **Math** (`ext.Math()`): `ceil()`, `floor()`, `round()`, `abs()`, `max()`, `min()`
 - **Lists** (`ext.Lists()`): `flatten()`, `unique()`, etc.
 - **Sets** (`ext.Sets()`): `contains()`, `intersects()`, etc.
+- **TwoVarComprehensions** (`ext.TwoVarComprehensions()`): `transformMapEntry()` - Convert arrays to maps
 
 **Custom Functions**:
 - `omit()` - Omit fields from output
 - `merge(map, map)` - Deep merge two maps (override takes precedence)
 
+**Built-in Operators**:
+- **Array concatenation**: `[1,2] + [3,4]` returns `[1,2,3,4]`
+- **String concatenation**: `"hello" + " " + "world"` returns `"hello world"`
+
 **Example Expressions**:
 - `${metadata.name}` - Access metadata
 - `${spec.replicas}` - Access parameters
-- `${build.image}` - Access build context
+- `${build.image}` - Access platform-injected build context
+- `${configurations.files + secrets.files}` - Concatenate arrays
 - `${has(spec.command) && spec.command.size() > 0 ? spec.command : omit()}` - Conditional with omit
 - `${metadata.name.upperAscii()}` - String manipulation
 - `${['a', 'b', 'c'].join('-')}` - List join
 - `${merge({"app": metadata.name}, podSelectors)}` - Map merge
+- `${configurations.envs.transformMapEntry(i, e, {e.name: e.value})}` - Array to map conversion
 
 ```go
 // renderer/cel.go
@@ -321,7 +304,117 @@ spec:
           mountPath: ${spec.mountPath}
 ```
 
-### 7. Environment Settings
+### 7. Platform-Injected Context and Secrets
+Platform-injected data is stored in `additional_context.json`, separate from Component YAML:
+
+**additional_context.json**:
+```json
+{
+  "podSelectors": {
+    "openchoreo.io/component-id": "web-service-12345",
+    "openchoreo.io/project-id": "my-project-67890"
+  },
+  "build": {
+    "image": "gcr.io/my-project/web-service:v1.0.0"
+  },
+  "configurations": {
+    "envs": [
+      {"name": "APP_ENV", "value": "production"},
+      {"name": "LOG_LEVEL", "value": "info"}
+    ],
+    "files": [
+      {
+        "name": "app-config",
+        "mountPath": "/etc/app/config.yaml",
+        "content": "database:\\nhost: localhost\\n"
+      }
+    ]
+  },
+  "secrets": {
+    "envs": [
+      {"name": "DATABASE_PASSWORD", "valueRef": "db-credentials/password"},
+      {"name": "API_KEY", "valueRef": "api-secrets/key"}
+    ],
+    "files": [
+      {
+        "name": "tls-cert",
+        "mountPath": "/etc/secrets/tls.crt",
+        "valueRef": "r1234"
+      }
+    ]
+  }
+}
+```
+
+**Mounting Secrets and Configurations**:
+```yaml
+# Deployment with configurations and secrets
+containers:
+  - name: app
+    # Mount secret env vars via envFrom.secretRef
+    envFrom:
+      - configMapRef:
+          name: ${metadata.name}-env-config
+      - secretRef:
+          name: ${metadata.name}-secret-envs
+
+    # Concatenate config files and secret files
+    volumeMounts: |
+      ${(configurations.files.map(f, {
+        "name": f.name,
+        "mountPath": f.mountPath,
+        "subPath": "config"
+      })) +
+      (secrets.files.map(f, {
+        "name": f.name,
+        "mountPath": f.mountPath,
+        "subPath": f.name
+      }))}
+
+volumes: |
+  ${(configurations.files.map(f, {
+    "name": f.name,
+    "configMap": {"name": metadata.name + "-config-" + f.name}
+  })) +
+  (secrets.files.map(f, {
+    "name": f.name,
+    "secret": {"secretName": metadata.name + "-secret-" + f.name}
+  }))}
+
+# ExternalSecretStore for secret env vars (single resource)
+- id: secret-envs
+  condition: ${has(secrets.envs) && secrets.envs.size() > 0}
+  template:
+    apiVersion: external-secrets.io/v1beta1
+    kind: ExternalSecretStore
+    metadata:
+      name: ${metadata.name}-secret-envs
+    spec:
+      data: "${secrets.envs.map(e, {\"key\": e.name, \"valueRef\": e.valueRef})}"
+
+# ExternalSecretStore for secret files (one per file)
+- id: secret-files
+  forEach: ${secrets.files}
+  var: secretFile
+  template:
+    apiVersion: external-secrets.io/v1beta1
+    kind: ExternalSecretStore
+    metadata:
+      name: ${metadata.name}-secret-${secretFile.name}
+    spec:
+      data:
+        - key: ${secretFile.name}
+          valueRef: ${secretFile.valueRef}
+```
+
+**Key Points**:
+- **Separation of concerns**: Platform data in `additional_context.json`, component config in YAML
+- **Array concatenation**: Use `+` operator to combine configuration and secret arrays
+- **ExternalSecretStore resolution**: Secret resources are resolved to K8s Secrets with same name
+- **Explicit naming**: Use `name` field for volume names instead of computing from `mountPath`
+- **Environment variable consolidation**: All config env vars in single ConfigMap, all secret env vars in single Secret
+
+### 8. Environment Settings
 Override parameters per environment:
 
 **Component**:
@@ -437,11 +530,17 @@ Each stage shows the incremental result of applying addons.
 
 ## Dependencies
 
-- **CEL**: `github.com/google/cel-go v0.26.1` - Expression language with optional types support
-- **CEL Extensions**: `github.com/google/cel-go/ext` - Standard CEL extensions (Strings, Encoders, Math, Lists, Sets)
+- **CEL**: `github.com/google/cel-go v0.26.1` - Expression language with optional types support and built-in array concatenation
+- **CEL Extensions**: `github.com/google/cel-go/ext` - Standard CEL extensions:
+  - `ext.Strings()` - String manipulation functions
+  - `ext.Encoders()` - Base64 encoding/decoding
+  - `ext.Math()` - Mathematical functions
+  - `ext.Lists()` - List operations (flatten, unique, etc.)
+  - `ext.Sets()` - Set operations
+  - `ext.TwoVarComprehensions()` - transformMapEntry for array-to-map conversion
 - **Kro**: `github.com/kubernetes-sigs/kro/pkg/simpleschema` - Human-friendly schema conversion
 - **K8s**: `k8s.io/apiextensions-apiserver v0.31.0` - OpenAPI types
-- **YAML**: `gopkg.in/yaml.v3` - YAML parsing
+- **YAML**: `gopkg.in/yaml.v3 v3.0.1` - YAML parsing and encoding
 
 ## Testing
 
