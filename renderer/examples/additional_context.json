@@ -24,10 +24,12 @@
         ],
         "files": [
             {
+                "name": "app-config",
                 "mountPath": "/etc/app/config.yaml",
                 "content": "database:\nhost: localhost\nport: 5432\n"
             },
             {
+                "name": "feature-flags",
                 "mountPath": "/etc/app/feature-flags.json",
                 "content": "{\"featureA\": true, \"featureB\": false}"
             }
@@ -46,10 +48,12 @@
         ],
         "files": [
             {
+                "name": "tls-cert",
                 "mountPath": "/etc/secrets/tls.crt",
                 "valueRef": "r1234"
             },
             {
+                "name": "tls.key",
                 "mountPath": "/etc/secrets/tls.key",
                 "valueRef": "r1235"
             }

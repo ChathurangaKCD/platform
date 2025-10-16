@@ -34,10 +34,10 @@ spec:
                         memory: 128Mi
                   volumeMounts:
                     - mountPath: /etc/app/config.yaml
-                      name: config--etc-app-config-yaml
+                      name: app-config
                       subPath: config
                     - mountPath: /etc/app/feature-flags.json
-                      name: config--etc-app-feature-flags-json
+                      name: feature-flags
                       subPath: config
                     - mountPath: /app/data
                       name: app-data-vol
@@ -68,11 +68,11 @@ spec:
                       subPath: ""
             volumes:
                 - configMap:
-                    name: web-service-config--etc-app-config-yaml
-                  name: config--etc-app-config-yaml
+                    name: web-service-config-app-config
+                  name: app-config
                 - configMap:
-                    name: web-service-config--etc-app-feature-flags-json
-                  name: config--etc-app-feature-flags-json
+                    name: web-service-config-feature-flags
+                  name: feature-flags
                 - name: app-data-vol
                   persistentVolumeClaim:
                     claimName: web-service-app-data
@@ -98,7 +98,7 @@ data:
         port: 5432
 kind: ConfigMap
 metadata:
-    name: web-service-config--etc-app-config-yaml
+    name: web-service-config-app-config
     namespace: default
 ---
 ---
@@ -107,7 +107,7 @@ data:
     config: '{"featureA": true, "featureB": false}'
 kind: ConfigMap
 metadata:
-    name: web-service-config--etc-app-feature-flags-json
+    name: web-service-config-feature-flags
     namespace: default
 ---
 ---

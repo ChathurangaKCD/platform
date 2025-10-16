@@ -52,7 +52,7 @@ spec:
                   volumeMounts: |
                     ${has(configurations.files) && configurations.files.size() > 0 ?
                       configurations.files.map(f, {
-                        "name": "config-" + f.mountPath.replace('/', '-').replace('.', '-'),
+                        "name": f.name,
                         "mountPath": f.mountPath,
                         "subPath": "config"
                       }) : omit()}
@@ -66,9 +66,9 @@ spec:
               volumes: |
                 ${has(configurations.files) && configurations.files.size() > 0 ?
                   configurations.files.map(f, {
-                    "name": "config-" + f.mountPath.replace('/', '-').replace('.', '-'),
+                    "name": f.name,
                     "configMap": {
-                      "name": metadata.name + "-config-" + f.mountPath.replace('/', '-').replace('.', '-')
+                      "name": metadata.name + "-config-" + f.name
                     }
                   }) : omit()}
     - id: env-configs
@@ -87,7 +87,7 @@ spec:
         apiVersion: v1
         kind: ConfigMap
         metadata:
-          name: ${metadata.name}-config-${configFile.mountPath.replace('/', '-').replace('.', '-')}
+          name: ${metadata.name}-config-${configFile.name}
           namespace: ${metadata.namespace}
         data:
           config: ${configFile.content}

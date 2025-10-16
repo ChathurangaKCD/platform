@@ -127,6 +127,7 @@ func convertConfigurationData(config parser.ConfigurationData) map[string]interf
 	files := make([]interface{}, len(config.Files))
 	for i, file := range config.Files {
 		files[i] = map[string]interface{}{
+			"name":      file.Name,
 			"mountPath": file.MountPath,
 			"content":   file.Content,
 		}

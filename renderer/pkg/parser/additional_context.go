@@ -39,6 +39,7 @@ type EnvVar struct {
 
 // ConfigFile represents a config file to mount
 type ConfigFile struct {
+	Name      string `json:"name"`
 	MountPath string `json:"mountPath"`
 	Content   string `json:"content"`
 }
