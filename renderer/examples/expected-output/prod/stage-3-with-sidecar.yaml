@@ -82,7 +82,6 @@ spec:
                   persistentVolumeClaim:
                     claimName: web-service-app-data
 ---
----
 apiVersion: v1
 data:
     APP_ENV: production
@@ -92,7 +91,6 @@ kind: ConfigMap
 metadata:
     name: web-service-env-config
     namespace: default
----
 ---
 apiVersion: v1
 data:
@@ -105,7 +103,6 @@ metadata:
     name: web-service-config-app-config
     namespace: default
 ---
----
 apiVersion: v1
 data:
     config: '{"featureA": true, "featureB": false}'
@@ -113,7 +110,6 @@ kind: ConfigMap
 metadata:
     name: web-service-config-feature-flags
     namespace: default
----
 ---
 apiVersion: external-secrets.io/v1beta1
 kind: ExternalSecretStore
@@ -127,7 +123,6 @@ spec:
         - key: API_KEY
           valueRef: api-secrets/key
 ---
----
 apiVersion: external-secrets.io/v1beta1
 kind: ExternalSecretStore
 metadata:
@@ -138,7 +133,6 @@ spec:
         - key: tls-cert
           valueRef: r1234
 ---
----
 apiVersion: external-secrets.io/v1beta1
 kind: ExternalSecretStore
 metadata:
@@ -148,7 +142,6 @@ spec:
     data:
         - key: tls.key
           valueRef: r1235
----
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

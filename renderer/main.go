@@ -207,12 +207,6 @@ func writeOutput(resources []map[string]interface{}, outputPath string) error {
 
 	// Write each resource as a separate YAML document
 	for i, resource := range resources {
-		if i > 0 {
-			// Add separator between documents
-			if _, err := file.WriteString("---\n"); err != nil {
-				return err
-			}
-		}
 		// Debug: check for unexpected types in resource
 		if err := checkForUnexpectedTypes(resource, ""); err != nil {
 			return fmt.Errorf("unexpected type in resource %d: %w", i, err)
