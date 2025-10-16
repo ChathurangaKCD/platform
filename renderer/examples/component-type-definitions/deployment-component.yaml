@@ -43,6 +43,19 @@ spec:
                 - name: app
                   image: ${build.image}
                   imagePullPolicy: ${spec.imagePullPolicy}
+                  envFrom: |
+                    ${has(configurations.envs) && configurations.envs.size() > 0 ? [{
+                      "configMapRef": {
+                        "name": metadata.name + "-env-config"
+                      }
+                    }] : omit()}
+                  volumeMounts: |
+                    ${has(configurations.files) && configurations.files.size() > 0 ?
+                      configurations.files.map(f, {
+                        "name": "config-" + f.mountPath.replace('/', '-').replace('.', '-'),
+                        "mountPath": f.mountPath,
+                        "subPath": "config"
+                      }) : omit()}
                   resources:
                     requests:
                       cpu: ${spec.resources.requests.cpu}
@@ -50,6 +63,14 @@ spec:
                     limits:
                       cpu: ${spec.resources.limits.cpu}
                       memory: ${spec.resources.limits.memory}
+              volumes: |
+                ${has(configurations.files) && configurations.files.size() > 0 ?
+                  configurations.files.map(f, {
+                    "name": "config-" + f.mountPath.replace('/', '-').replace('.', '-'),
+                    "configMap": {
+                      "name": metadata.name + "-config-" + f.mountPath.replace('/', '-').replace('.', '-')
+                    }
+                  }) : omit()}
     - id: env-configs
       condition: ${has(configurations.envs) && configurations.envs.size() > 0}
       template:

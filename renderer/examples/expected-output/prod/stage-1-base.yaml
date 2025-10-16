@@ -19,7 +19,10 @@ spec:
                 openchoreo.io/project-id: my-project-67890
         spec:
             containers:
-                - image: gcr.io/my-project/web-service:v1.0.0
+                - envFrom:
+                    - configMapRef:
+                        name: web-service-env-config
+                  image: gcr.io/my-project/web-service:v1.0.0
                   imagePullPolicy: IfNotPresent
                   name: app
                   resources:
@@ -29,6 +32,20 @@ spec:
                     requests:
                         cpu: 500m
                         memory: 1Gi
+                  volumeMounts:
+                    - mountPath: /etc/app/config.yaml
+                      name: config--etc-app-config-yaml
+                      subPath: config
+                    - mountPath: /etc/app/feature-flags.json
+                      name: config--etc-app-feature-flags-json
+                      subPath: config
+            volumes:
+                - configMap:
+                    name: web-service-config--etc-app-config-yaml
+                  name: config--etc-app-config-yaml
+                - configMap:
+                    name: web-service-config--etc-app-feature-flags-json
+                  name: config--etc-app-feature-flags-json
 ---
 ---
 apiVersion: v1
