@@ -1,31 +1,33 @@
-package renderer
+package patch
 
 import (
 	"fmt"
 	"strconv"
 	"strings"
 
-	"github.com/chathurangada/cel_playground/renderer/pkg/types"
+	"github.com/chathurangada/cel_playground/renderer2/pkg/types"
 )
 
-// ApplyPatch applies a patch to a target resource
-func ApplyPatch(target map[string]interface{}, patch types.Patch, inputs map[string]interface{}) error {
-	// Evaluate path and value with CEL
-	path, err := EvaluateCELExpressions(patch.Path, inputs)
+// ApplyPatch applies a single patch operation against a target resource.
+func ApplyPatch(target map[string]interface{}, patch types.Patch, inputs map[string]interface{}, renderString func(interface{}, map[string]interface{}) (interface{}, error)) error {
+	path, err := renderString(patch.Path, inputs)
 	if err != nil {
 		return fmt.Errorf("failed to evaluate patch path: %w", err)
 	}
+
 	pathStr, ok := path.(string)
 	if !ok {
-		return fmt.Errorf("patch path must be a string, got %T", path)
+		return fmt.Errorf("patch path must evaluate to a string, got %T", path)
 	}
 
-	value, err := EvaluateCELExpressions(patch.Value, inputs)
-	if err != nil {
-		return fmt.Errorf("failed to evaluate patch value: %w", err)
+	var value interface{}
+	if patch.Op != "remove" {
+		value, err = renderString(patch.Value, inputs)
+		if err != nil {
+			return fmt.Errorf("failed to evaluate patch value: %w", err)
+		}
 	}
 
-	// Apply the patch based on operation
 	switch patch.Op {
 	case "add":
 		return applyAdd(target, pathStr, value)
@@ -102,10 +104,6 @@ func applyMerge(target map[string]interface{}, path string, value interface{}) e
 }
 
 func applyPathWithArrayFilter(target map[string]interface{}, path string, value interface{}, op string) error {
-	// Parse path like: /spec/template/spec/containers/[?(@.name=='app')]/volumeMounts/-
-	// Split into: prefix path + array filter section
-
-	// Find the array filter part
 	filterStart := strings.Index(path, "[?(")
 	if filterStart == -1 {
 		return fmt.Errorf("no array filter found in path: %s", path)
@@ -115,17 +113,12 @@ func applyPathWithArrayFilter(target map[string]interface{}, path string, value 
 	if filterEnd == -1 {
 		return fmt.Errorf("unclosed array filter in path: %s", path)
 	}
-	filterEnd += filterStart + 2 // Adjust to absolute position and include )]
+	filterEnd += filterStart + 2
 
-	// Extract parts
-	// prefixPath: /spec/template/spec/containers/
-	// filterExpr: [?(@.name=='app')]
-	// suffixPath: /volumeMounts/-
 	prefixPath := path[:filterStart]
 	filterExpr := path[filterStart:filterEnd]
 	suffixPath := path[filterEnd:]
 
-	// Clean and split prefix path
 	prefixPath = strings.TrimPrefix(prefixPath, "/")
 	prefixPath = strings.TrimSuffix(prefixPath, "/")
 
@@ -134,8 +127,11 @@ func applyPathWithArrayFilter(target map[string]interface{}, path string, value 
 		prefixParts = strings.Split(prefixPath, "/")
 	}
 
-	current := interface{}(target)
+	if len(prefixParts) == 0 {
+		return fmt.Errorf("array filter path %s must include a parent key", path)
+	}
 
+	current := interface{}(target)
 	for i := 0; i < len(prefixParts)-1; i++ {
 		part := prefixParts[i]
 		switch node := current.(type) {
@@ -154,53 +150,47 @@ func applyPathWithArrayFilter(target map[string]interface{}, path string, value 
 		case []interface{}:
 			idx, err := strconv.Atoi(part)
 			if err != nil {
-				return fmt.Errorf("path element %s is not an index within an array", part)
+				return fmt.Errorf("path segment %s is not a valid index", part)
 			}
 			if idx < 0 || idx >= len(node) {
-				return fmt.Errorf("array index %d out of bounds while traversing %s", idx, part)
+				return fmt.Errorf("index %d out of bounds for segment %s", idx, part)
 			}
 			current = node[idx]
 		default:
-			return fmt.Errorf("cannot traverse path segment %s on type %T", part, current)
+			return fmt.Errorf("cannot traverse segment %s on type %T", part, current)
 		}
 	}
 
-	parentMap, ok := current.(map[string]interface{})
-	if !ok && len(prefixParts) > 0 {
-		return fmt.Errorf("path element %s is not an object", prefixParts[len(prefixParts)-1])
-	}
-
-	arrayKey := ""
+	var parentMap map[string]interface{}
 	if len(prefixParts) > 0 {
-		arrayKey = prefixParts[len(prefixParts)-1]
+		last := prefixParts[len(prefixParts)-1]
+		if currentMap, ok := current.(map[string]interface{}); ok {
+			parentMap = currentMap
+			current = currentMap[last]
+		} else {
+			return fmt.Errorf("path element %s is not an object", last)
+		}
 	}
 
-	arrVal := interface{}(nil)
-	if parentMap != nil {
-		arrVal = parentMap[arrayKey]
-	}
-
+	arrVal := current
 	if arrVal == nil {
 		if op == "remove" {
 			return nil
 		}
 		arrVal = []interface{}{}
-		if parentMap != nil {
-			parentMap[arrayKey] = arrVal
-		}
+		parentMap[prefixParts[len(prefixParts)-1]] = arrVal
 	}
 
 	arr, ok := arrVal.([]interface{})
 	if !ok {
-		return fmt.Errorf("path element %s is not an array, got %T", arrayKey, arrVal)
+		return fmt.Errorf("path element is not an array, got %T", arrVal)
 	}
 
-	// Parse filter: [?(@.name=='app')]
 	if !strings.HasPrefix(filterExpr, "[?(") || !strings.HasSuffix(filterExpr, ")]") {
 		return fmt.Errorf("invalid filter expression: %s", filterExpr)
 	}
 
-	filterContent := filterExpr[3 : len(filterExpr)-2] // Extract @.name=='app'
+	filterContent := filterExpr[3 : len(filterExpr)-2]
 	filterParts := strings.SplitN(filterContent, "==", 2)
 	if len(filterParts) != 2 {
 		return fmt.Errorf("invalid filter expression: %s", filterContent)
@@ -218,21 +208,15 @@ func applyPathWithArrayFilter(target map[string]interface{}, path string, value 
 	matched := false
 	newArr := make([]interface{}, 0, len(arr))
 
-	for idx := 0; idx < len(arr); idx++ {
-		item := arr[idx]
+	for _, item := range arr {
 		itemMap, ok := item.(map[string]interface{})
 		if !ok {
 			newArr = append(newArr, item)
 			continue
 		}
 
-		fieldVal, exists := getNestedValue(itemMap, fieldPath)
-		if !exists {
-			newArr = append(newArr, item)
-			continue
-		}
-
-		if fmt.Sprintf("%v", fieldVal) != targetValue {
+	valueAtPath, exists := getNestedValue(itemMap, fieldPath)
+	if !exists || fmt.Sprintf("%v", valueAtPath) != targetValue {
 			newArr = append(newArr, item)
 			continue
 		}
@@ -242,31 +226,29 @@ func applyPathWithArrayFilter(target map[string]interface{}, path string, value 
 		if len(suffixParts) == 0 {
 			switch op {
 			case "remove":
-				// Skip adding this item to newArr to remove it entirely
 				continue
 			case "merge":
 				valueMap, ok := value.(map[string]interface{})
 				if !ok {
-					return fmt.Errorf("merge value must be an object when applying filter at %s", path)
+					return fmt.Errorf("merge value must be an object for %s", path)
 				}
-				itemMap = DeepMerge(itemMap, valueMap)
+				itemMap = deepMerge(itemMap, valueMap)
 				newArr = append(newArr, itemMap)
 			case "add", "replace":
 				valueMap, ok := value.(map[string]interface{})
 				if !ok {
-					return fmt.Errorf("value must be an object when applying filter at %s", path)
+					return fmt.Errorf("value must be an object for %s", path)
 				}
 				for k, v := range valueMap {
 					itemMap[k] = v
 				}
 				newArr = append(newArr, itemMap)
 			default:
-				return fmt.Errorf("unsupported operation %s for filtered path %s", op, path)
+				return fmt.Errorf("unsupported operation %s for %s", op, path)
 			}
 			continue
 		}
 
-		// Apply to nested path
 		_, err := setValue(itemMap, suffixParts, value, op, "")
 		if err != nil {
 			return err
@@ -278,33 +260,27 @@ func applyPathWithArrayFilter(target map[string]interface{}, path string, value 
 		return nil
 	}
 
-	if parentMap != nil {
-		parentMap[arrayKey] = newArr
+	if len(prefixParts) > 0 {
+		parentMap[prefixParts[len(prefixParts)-1]] = newArr
 	}
+
 	return nil
 }
 
 func parsePath(path string) []string {
-	// Remove leading slash
 	path = strings.TrimPrefix(path, "/")
 	if path == "" {
 		return []string{}
 	}
 
-	// Split by slash
 	parts := strings.Split(path, "/")
-
-	// Handle array indices
 	var result []string
 	for _, part := range parts {
-		// Handle array index [0] or array append [-]
 		if strings.Contains(part, "[") {
-			// Extract base and index
 			idx := strings.Index(part, "[")
 			if idx > 0 {
 				result = append(result, part[:idx])
 			}
-			// Extract index value
 			indexPart := part[idx+1:]
 			indexPart = strings.TrimSuffix(indexPart, "]")
 			if indexPart != "" {
@@ -314,38 +290,36 @@ func parsePath(path string) []string {
 			result = append(result, part)
 		}
 	}
-
 	return result
 }
 
-// FindTargetResources finds resources matching the target specification
-func FindTargetResources(resources []map[string]interface{}, target types.TargetSpec) []map[string]interface{} {
+// FindTargetResources locates resources that match the given target specification.
+func FindTargetResources(resources []map[string]interface{}, target types.TargetSpec, selector Matcher) []map[string]interface{} {
 	var matches []map[string]interface{}
-
 	for _, resource := range resources {
-		// Match by resource type (Kind)
 		if target.ResourceType != "" {
 			kind, ok := resource["kind"].(string)
 			if !ok || kind != target.ResourceType {
 				continue
 			}
 		}
-
-		// Match by resource ID (not in standard k8s resources, but in our templates)
 		if target.ResourceID != "" {
-			// This would match our internal ID field if we tracked it
-			// For now, skip this check
+			if id, ok := resource["id"].(string); !ok || id != target.ResourceID {
+				continue
+			}
 		}
-
+		if target.Selector != "" && selector != nil {
+			if !selector(resource, target.Selector) {
+				continue
+			}
+		}
 		matches = append(matches, resource)
 	}
-
 	return matches
 }
 
-func parseInt(s string) (int, error) {
-	return strconv.Atoi(s)
-}
+// Matcher evaluates if a resource satisfies a selector expression.
+type Matcher func(resource map[string]interface{}, selector string) bool
 
 func setValue(container interface{}, parts []string, value interface{}, op string, pathPrefix string) (interface{}, error) {
 	if len(parts) == 0 {
@@ -445,13 +419,13 @@ func applyToMap(node map[string]interface{}, key string, value interface{}, op s
 			return nil, fmt.Errorf("merge value at %s must be an object", path)
 		}
 		existing, _ := node[key].(map[string]interface{})
-		node[key] = DeepMerge(existing, valueMap)
+		node[key] = deepMerge(existing, valueMap)
 		return node, nil
 	case "remove":
 		delete(node, key)
 		return node, nil
 	default:
-		return nil, fmt.Errorf("unsupported operation %s for path %s", op, path)
+		return nil, fmt.Errorf("unsupported operation %s at %s", op, path)
 	}
 }
 
@@ -475,7 +449,6 @@ func applyToSlice(node []interface{}, token string, value interface{}, op string
 		}
 		node = append(node[:idx], append([]interface{}{value}, node[idx:]...)...)
 		return node, nil
-
 	case "replace":
 		if token == "-" {
 			return nil, fmt.Errorf("replace does not support '-' at %s", path)
@@ -489,7 +462,6 @@ func applyToSlice(node []interface{}, token string, value interface{}, op string
 		}
 		node[idx] = value
 		return node, nil
-
 	case "remove":
 		if token == "-" {
 			if len(node) == 0 {
@@ -505,7 +477,6 @@ func applyToSlice(node []interface{}, token string, value interface{}, op string
 			return nil, fmt.Errorf("array index %d out of bounds at %s", idx, path)
 		}
 		return append(node[:idx], node[idx+1:]...), nil
-
 	case "merge":
 		if token == "-" {
 			return nil, fmt.Errorf("merge does not support '-' at %s", path)
@@ -522,9 +493,8 @@ func applyToSlice(node []interface{}, token string, value interface{}, op string
 		if !ok {
 			return nil, fmt.Errorf("merge value at %s must be an object", path)
 		}
-		node[idx] = DeepMerge(existing, valueMap)
+		node[idx] = deepMerge(existing, valueMap)
 		return node, nil
-
 	default:
 		return nil, fmt.Errorf("unsupported operation %s at %s", op, path)
 	}
@@ -578,4 +548,21 @@ func getNestedValue(data interface{}, path string) (interface{}, bool) {
 		}
 	}
 	return current, true
+}
+
+func deepMerge(base, override map[string]interface{}) map[string]interface{} {
+	result := make(map[string]interface{}, len(base))
+	for k, v := range base {
+		result[k] = v
+	}
+	for k, v := range override {
+		if existing, ok := result[k].(map[string]interface{}); ok {
+			if add, ok := v.(map[string]interface{}); ok {
+				result[k] = deepMerge(existing, add)
+				continue
+			}
+		}
+		result[k] = v
+	}
+	return result
 }
