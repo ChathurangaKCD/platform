@@ -2,9 +2,11 @@ package pipeline
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/chathurangada/cel_playground/renderer2/pkg/context"
 	"github.com/chathurangada/cel_playground/renderer2/pkg/patch"
+	"github.com/chathurangada/cel_playground/renderer2/pkg/schema"
 	"github.com/chathurangada/cel_playground/renderer2/pkg/template"
 	"github.com/chathurangada/cel_playground/renderer2/pkg/types"
 )
@@ -27,7 +29,12 @@ func (r *RendererCoordinates) RenderComponentResources(
 	additionalCtx *types.AdditionalContext,
 	workload map[string]interface{},
 ) ([]map[string]interface{}, error) {
-	inputs := context.BuildComponentContext(component, envSettings, additionalCtx, workload)
+	componentDefaults, err := schema.ComponentDefaults(definition.Spec.Schema)
+	if err != nil {
+		return nil, fmt.Errorf("failed to calculate component defaults: %w", err)
+	}
+
+	inputs := context.BuildComponentContext(component, envSettings, additionalCtx, workload, componentDefaults)
 	return r.renderResourceTemplates(definition.Spec.Resources, inputs)
 }
 
@@ -41,7 +48,12 @@ func (r *RendererCoordinates) ApplyAddon(
 	additionalCtx *types.AdditionalContext,
 	matcher patch.Matcher,
 ) ([]map[string]interface{}, error) {
-	inputs := context.BuildAddonContext(component, addonInstance, envSettings, additionalCtx)
+	addonDefaults, err := schema.AddonDefaults(addon.Spec.Schema)
+	if err != nil {
+		return nil, fmt.Errorf("failed to calculate defaults for addon %s: %w", addon.Metadata.Name, err)
+	}
+
+	inputs := context.BuildAddonContext(component, addonInstance, envSettings, additionalCtx, addonDefaults)
 
 	// Render creates
 	for _, createTemplate := range addon.Spec.Creates {
@@ -183,6 +195,9 @@ func (r *RendererCoordinates) shouldInclude(tmpl types.ResourceTemplate, inputs 
 
 	result, err := r.TemplateEngine.Render(tmpl.IncludeWhen, inputs)
 	if err != nil {
+		if isMissingDataError(err) {
+			return false, nil
+		}
 		return false, err
 	}
 
@@ -200,4 +215,14 @@ func cloneMap(src map[string]interface{}) map[string]interface{} {
 		result[key] = value
 	}
 	return result
+}
+
+func isMissingDataError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "no such key") ||
+		strings.Contains(msg, "no such field") ||
+		strings.Contains(msg, "undefined variable")
 }

@@ -11,13 +11,16 @@ func BuildComponentContext(
 	envSettings *types.EnvSettings,
 	additionalCtx *types.AdditionalContext,
 	workload map[string]interface{},
+	defaults map[string]interface{},
 ) map[string]interface{} {
-	spec := cloneMap(component.Spec.Parameters)
+	spec := deepCopyMap(defaults)
+
+	if component.Spec.Parameters != nil {
+		mergeInto(spec, component.Spec.Parameters)
+	}
 
 	if envSettings != nil {
-		for key, value := range envSettings.Spec.Overrides {
-			spec[key] = value
-		}
+		mergeInto(spec, envSettings.Spec.Overrides)
 	}
 
 	ctx := map[string]interface{}{
@@ -46,14 +49,17 @@ func BuildAddonContext(
 	addonInstance types.AddonInstance,
 	envSettings *types.EnvSettings,
 	additionalCtx *types.AdditionalContext,
+	defaults map[string]interface{},
 ) map[string]interface{} {
-	config := cloneMap(addonInstance.Config)
+	config := deepCopyMap(defaults)
+
+	if addonInstance.Config != nil {
+		mergeInto(config, addonInstance.Config)
+	}
 
 	if envSettings != nil && envSettings.Spec.AddonOverrides != nil {
 		if overrides, ok := envSettings.Spec.AddonOverrides[addonInstance.InstanceID]; ok {
-			for key, value := range overrides {
-				config[key] = value
-			}
+			mergeInto(config, overrides)
 		}
 	}
 
@@ -155,11 +161,7 @@ func convertSecrets(secrets types.SecretData) map[string]interface{} {
 }
 
 func cloneMap(src map[string]interface{}) map[string]interface{} {
-	result := make(map[string]interface{}, len(src))
-	for key, value := range src {
-		result[key] = value
-	}
-	return result
+	return deepCopyMap(src)
 }
 
 func cloneStringMap(src map[string]string) map[string]string {
@@ -168,4 +170,62 @@ func cloneStringMap(src map[string]string) map[string]string {
 		result[key] = value
 	}
 	return result
+}
+
+func deepCopyMap(src map[string]interface{}) map[string]interface{} {
+	if src == nil {
+		return map[string]interface{}{}
+	}
+	result := make(map[string]interface{}, len(src))
+	for key, value := range src {
+		result[key] = deepCopyValue(value)
+	}
+	return result
+}
+
+func deepCopyValue(value interface{}) interface{} {
+	switch v := value.(type) {
+	case map[string]interface{}:
+		return deepCopyMap(v)
+	case []interface{}:
+		copied := make([]interface{}, len(v))
+		for i, item := range v {
+			copied[i] = deepCopyValue(item)
+		}
+		return copied
+	default:
+		return v
+	}
+}
+
+func mergeInto(dst map[string]interface{}, src map[string]interface{}) {
+	if dst == nil || src == nil {
+		return
+	}
+
+	for key, value := range src {
+		if valueMap, ok := value.(map[string]interface{}); ok {
+			existing, exists := dst[key]
+			if !exists {
+				dst[key] = deepCopyMap(valueMap)
+				continue
+			}
+
+			existingMap, ok := existing.(map[string]interface{})
+			if !ok {
+				dst[key] = deepCopyMap(valueMap)
+				continue
+			}
+
+			mergeInto(existingMap, valueMap)
+			continue
+		}
+
+		if valueSlice, ok := value.([]interface{}); ok {
+			dst[key] = deepCopyValue(valueSlice)
+			continue
+		}
+
+		dst[key] = value
+	}
 }

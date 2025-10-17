@@ -97,7 +97,7 @@ spec:
                     }) : [])
                 : omit()}
     - id: pdb
-      includeWhen: ${has(spec.pdbEnabled) && spec.pdbEnabled}
+      includeWhen: ${spec.pdbEnabled}
       template:
         apiVersion: policy/v1
         kind: PodDisruptionBudget

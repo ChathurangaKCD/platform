@@ -14,10 +14,9 @@ import (
 // omitValue is a sentinel used to mark values that should be pruned after rendering.
 type omitValue struct{}
 
-var (
-	omitSentinel = &omitValue{}
-	omitErrMsg   = "__OC_RENDERER_OMIT__"
-)
+var omitSentinel = &omitValue{}
+
+const omitErrMsg = "__OC_RENDERER_OMIT__"
 
 // Engine evaluates CEL backed templates that can contain inline expressions, map keys, and nested structures.
 type Engine struct{}
