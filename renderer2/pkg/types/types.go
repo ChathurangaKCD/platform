@@ -114,6 +114,8 @@ type EnvSettingsSpec struct {
 	Environment    string                            `yaml:"environment"`
 	Overrides      map[string]interface{}            `yaml:"overrides,omitempty"`
 	AddonOverrides map[string]map[string]interface{} `yaml:"addonOverrides,omitempty"`
+	Owner          *ComponentRef                     `yaml:"owner,omitempty"`
+	ComponentRef   *ComponentRef                     `yaml:"componentRef,omitempty"`
 }
 
 type AdditionalContext struct {
@@ -157,6 +159,11 @@ type SecretFile struct {
 	Name      string `json:"name"`
 	MountPath string `json:"mountPath"`
 	ValueRef  string `json:"valueRef"`
+}
+
+type ComponentRef struct {
+	Name      string `yaml:"name"`
+	Namespace string `yaml:"namespace,omitempty"`
 }
 
 type Workload struct {

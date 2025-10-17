@@ -48,6 +48,15 @@ func main() {
 		log.Printf("warning: failed to load additional context: %v", err)
 	}
 
+	// Validate schemas before rendering
+	schemaOutputDir := filepath.Join(examplesDir, "schemas")
+	if err := os.RemoveAll(schemaOutputDir); err != nil {
+		log.Fatalf("failed to clean schema directory: %v", err)
+	}
+	if err := parser.ValidateSchemas(ctd, addons, schemaOutputDir); err != nil {
+		log.Fatalf("schema validation failed: %v", err)
+	}
+
 	envDir := filepath.Join(examplesDir, "env-settings")
 	envConfigs := []struct {
 		name     string
