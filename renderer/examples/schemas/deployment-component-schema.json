@@ -6,6 +6,10 @@
       "type": "string",
       "default": "IfNotPresent"
     },
+    "pdbEnabled": {
+      "type": "boolean",
+      "default": false
+    },
     "replicas": {
       "type": "integer",
       "default": 1

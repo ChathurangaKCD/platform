@@ -30,11 +30,11 @@ type Schema struct {
 
 // ResourceTemplate represents a template for a Kubernetes resource
 type ResourceTemplate struct {
-	ID        string                 `yaml:"id"`
-	Condition string                 `yaml:"condition,omitempty"`
-	ForEach   string                 `yaml:"forEach,omitempty"`
-	Var       string                 `yaml:"var,omitempty"`
-	Template  map[string]interface{} `yaml:"template"`
+	ID          string                 `yaml:"id"`
+	IncludeWhen string                 `yaml:"includeWhen,omitempty"`
+	ForEach     string                 `yaml:"forEach,omitempty"`
+	Var         string                 `yaml:"var,omitempty"`
+	Template    map[string]interface{} `yaml:"template"`
 }
 
 // Addon represents an addon definition

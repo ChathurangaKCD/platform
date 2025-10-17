@@ -92,7 +92,7 @@ spec:
 - **Semantic naming**: Use meaningful names like `service`, `config`, `mount` instead of `item`
 - **Nested properties**: Access `${configFile.name}`, `${configFile.content}`, etc.
 - **Works with any CEL expression** that returns an array
-- **Combinable with `condition`** for conditional rendering
+- **Combinable with `includeWhen`** for conditional rendering
 
 **Default behavior**: If `var` is omitted, defaults to `item` for backward compatibility
 
@@ -383,7 +383,7 @@ volumes: |
 
 # ExternalSecretStore for secret env vars (single resource)
 - id: secret-envs
-  condition: ${has(secrets.envs) && secrets.envs.size() > 0}
+  includeWhen: ${has(secrets.envs) && secrets.envs.size() > 0}
   template:
     apiVersion: external-secrets.io/v1beta1
     kind: ExternalSecretStore

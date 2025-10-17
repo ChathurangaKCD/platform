@@ -7,6 +7,7 @@ spec:
   schema:
     parameters:
       # Static across environments
+      pdbEnabled: boolean | default=false
       replicas: integer | default=1
       imagePullPolicy: string | default=IfNotPresent
 
@@ -95,8 +96,20 @@ spec:
                       }
                     }) : [])
                 : omit()}
+    - id: pdb
+      includeWhen: ${has(spec.pdbEnabled) && spec.pdbEnabled}
+      template:
+        apiVersion: policy/v1
+        kind: PodDisruptionBudget
+        metadata:
+          name: ${metadata.name}
+        spec:
+          selector:
+            matchLabels:
+              app: ${metadata.name}
+          minAvailable: 1
     - id: env-configs
-      condition: ${has(configurations.envs) && configurations.envs.size() > 0}
+      includeWhen: ${has(configurations.envs) && configurations.envs.size() > 0}
       template:
         apiVersion: v1
         kind: ConfigMap
@@ -116,7 +129,7 @@ spec:
         data:
           config: ${configFile.content}
     - id: secret-envs
-      condition: ${has(secrets.envs) && secrets.envs.size() > 0}
+      includeWhen: ${has(secrets.envs) && secrets.envs.size() > 0}
       template:
         apiVersion: external-secrets.io/v1beta1
         kind: ExternalSecretStore
@@ -124,7 +137,7 @@ spec:
           name: ${metadata.name}-secret-envs
           namespace: ${metadata.namespace}
         spec:
-          data: "${secrets.envs.map(e, {\"key\": e.name, \"valueRef\": e.valueRef})}"
+          data: '${secrets.envs.map(e, {"key": e.name, "valueRef": e.valueRef})}'
     - id: secret-files
       forEach: ${secrets.files}
       var: secretFile

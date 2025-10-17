@@ -14,13 +14,13 @@ func RenderBaseResources(
 	var resources []map[string]interface{}
 
 	for _, resourceTemplate := range ctd.Spec.Resources {
-		// Check condition if present
-		if resourceTemplate.Condition != "" {
-			conditionResult, err := EvaluateCELExpressions(resourceTemplate.Condition, inputs)
+		// Check includeWhen if present
+		if resourceTemplate.IncludeWhen != "" {
+			includeResult, err := EvaluateCELExpressions(resourceTemplate.IncludeWhen, inputs)
 			if err != nil {
-				return nil, fmt.Errorf("failed to evaluate condition for resource %s: %w", resourceTemplate.ID, err)
+				return nil, fmt.Errorf("failed to evaluate includeWhen for resource %s: %w", resourceTemplate.ID, err)
 			}
-			if boolResult, ok := conditionResult.(bool); ok && !boolResult {
+			if boolResult, ok := includeResult.(bool); ok && !boolResult {
 				continue // Skip this resource
 			}
 		}
