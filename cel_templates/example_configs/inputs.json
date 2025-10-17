@@ -1,0 +1,85 @@
+{
+  "metadata": {
+    "name": "web-service",
+    "namespace": "production"
+  },
+  "spec": {
+    "maxReplicas": 10,
+    "rollingUpdate": {
+      "maxSurge": 2
+    },
+    "endpoints": [
+      {
+        "name": "http",
+        "port": 8080,
+        "protocol": "tcp"
+      },
+      {
+        "name": "grpc",
+        "port": 9090,
+        "protocol": "tcp"
+      },
+      {
+        "name": "metrics",
+        "port": 9091,
+        "protocol": "tcp"
+      },
+      {
+        "name": "debug",
+        "port": 8081,
+        "protocol": "udp"
+      }
+    ],
+    "features": ["logging", "monitoring", "tracing", "caching"]
+  },
+  "build": {
+    "image": "gcr.io/my-project/web-service:v2.1.0"
+  },
+  "configurations": {
+    "configs": {
+      "envs": [
+        {
+          "name": "DEBUG_LEVEL",
+          "value": "info"
+        },
+        {
+          "name": "DB_URL",
+          "value": "localhost:5432/db"
+        }
+      ],
+      "files": [
+        {
+          "name": "config.yaml",
+          "mountPath": "/configs",
+          "content": "test-yaml: true\n"
+        },
+        {
+          "name": "app.properties",
+          "mountPath": "/configs/app.properties",
+          "content": "app.name=web-service\napp.env=production\n"
+        }
+      ]
+    },
+    "secrets": {
+      "envs": [
+        {
+          "name": "DB_PASSWORD",
+          "remoteRef": {
+            "key": "secret/data/databases/mysql/staging",
+            "property": "password"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "db-password.txt",
+          "mountPath": "/secrets/db-password.txt",
+          "remoteRef": {
+            "key": "secret/data/databases/mysql/staging",
+            "property": "password"
+          }
+        }
+      ]
+    }
+  }
+}

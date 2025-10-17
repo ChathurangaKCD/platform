@@ -1,0 +1,72 @@
+resources:
+  - id: env-config
+    condition: ${has(configurations.configs.envs)}
+    template:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: ${metadata.name}-env-config
+        namespace: ${metadata.namespace}
+      data: |
+        ${has(configurations.configs.envs) ? configurations.configs.envs.transformMapEntry(index, env, {env.name: env.value}) : omit()}
+
+  - id: file-config
+    forEach: ${configurations.configs.files}
+    condition: ${has(configurations.configs.files)}
+    template:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: ${metadata.name}-${item.name}
+        namespace: ${metadata.namespace}
+      data:
+        ${item.name}: |
+          ${item.content}
+
+  - id: secret-env-external
+    condition: ${has(configurations.secrets.envs)}
+    template:
+      apiVersion: external-secrets.io/v1beta1
+      kind: ExternalSecret
+      metadata:
+        name: ${metadata.name}-env-secrets
+        namespace: ${metadata.namespace}
+      spec:
+        refreshInterval: 15s
+        secretStoreRef:
+          name: vault-backend
+          kind: SecretStore
+        target:
+          name: ${metadata.name}-env-secrets
+          creationPolicy: Owner
+        data: |
+          ${has(configurations.secrets.envs) ? configurations.secrets.envs.map(secret, {
+            "secretKey": secret.name,
+            "remoteRef": {
+              "key": secret.remoteRef.key,
+              "property": secret.remoteRef.property
+            }
+          }) : omit()}
+
+  - id: secret-file-external
+    forEach: ${configurations.secrets.files}
+    condition: ${has(configurations.secrets.files)}
+    template:
+      apiVersion: external-secrets.io/v1beta1
+      kind: ExternalSecret
+      metadata:
+        name: ${metadata.name}-${item.name}-secret
+        namespace: ${metadata.namespace}
+      spec:
+        refreshInterval: 15s
+        secretStoreRef:
+          name: vault-backend
+          kind: SecretStore
+        target:
+          name: ${metadata.name}-${item.name}-secret
+          creationPolicy: Owner
+        data:
+          - secretKey: ${item.name}
+            remoteRef:
+              key: ${item.remoteRef.key}
+              property: ${item.remoteRef.property}

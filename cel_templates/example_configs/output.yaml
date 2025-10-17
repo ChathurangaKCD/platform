@@ -1,0 +1,9 @@
+resources:
+    - apiVersion: v1
+      data:
+        DB_URL: localhost:5432/db
+        DEBUG_LEVEL: info
+      kind: ConfigMap
+      metadata:
+        name: web-service-env-config
+        namespace: production
