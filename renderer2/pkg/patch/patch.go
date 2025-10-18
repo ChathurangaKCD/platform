@@ -172,10 +172,20 @@ func applySegment(state pathState, segment string) ([]pathState, error) {
 				token = remaining[:nextBracket]
 				remaining = remaining[nextBracket:]
 			}
-			var err error
-			current, err = applyKey(current, token)
-			if err != nil {
-				return nil, err
+			if token == "" {
+				continue
+			}
+			if idx, err := strconv.Atoi(token); err == nil {
+				current, err = applyIndex(current, idx)
+				if err != nil {
+					return nil, err
+				}
+			} else {
+				var err error
+				current, err = applyKey(current, token)
+				if err != nil {
+					return nil, err
+				}
 			}
 		}
 	}
