@@ -5,49 +5,20 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 
+	"github.com/chathurangada/cel_playground/renderer2/pkg/schema"
 	"github.com/chathurangada/cel_playground/renderer2/pkg/types"
-	"github.com/kubernetes-sigs/kro/pkg/simpleschema"
 	extv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 )
 
 // GenerateJSONSchema converts a ComponentTypeDefinition schema into OpenAPI v3 JSONSchema.
 func GenerateJSONSchema(ctd *types.ComponentTypeDefinition) (*extv1.JSONSchemaProps, error) {
-	merged := make(map[string]interface{})
-	for key, value := range ctd.Spec.Schema.Parameters {
-		merged[key] = value
-	}
-	for key, value := range ctd.Spec.Schema.EnvOverrides {
-		merged[key] = value
-	}
-
-	jsonSchema, err := simpleschema.ToOpenAPISpec(merged, ctd.Spec.Schema.Types)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate ComponentTypeDefinition schema: %w", err)
-	}
-
-	sortRequiredFields(jsonSchema)
-	return jsonSchema, nil
+	return schema.JSONSchemaFromSpec(ctd.Spec.Schema)
 }
 
 // GenerateAddonJSONSchema converts an Addon schema into OpenAPI v3 JSONSchema.
 func GenerateAddonJSONSchema(addon *types.Addon) (*extv1.JSONSchemaProps, error) {
-	merged := make(map[string]interface{})
-	for key, value := range addon.Spec.Schema.Parameters {
-		merged[key] = value
-	}
-	for key, value := range addon.Spec.Schema.EnvOverrides {
-		merged[key] = value
-	}
-
-	jsonSchema, err := simpleschema.ToOpenAPISpec(merged, addon.Spec.Schema.Types)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate addon schema: %w", err)
-	}
-
-	sortRequiredFields(jsonSchema)
-	return jsonSchema, nil
+	return schema.JSONSchemaFromSpec(addon.Spec.Schema)
 }
 
 // ValidateSchemas generates JSON Schemas for the component definition and addons and writes them to disk.
@@ -108,28 +79,4 @@ func printSchema(name string, schema *extv1.JSONSchemaProps) error {
 	}
 	fmt.Printf("%s JSON Schema:\n%s\n\n", name, string(data))
 	return nil
-}
-
-func sortRequiredFields(schema *extv1.JSONSchemaProps) {
-	if schema == nil {
-		return
-	}
-
-	if len(schema.Required) > 0 {
-		sort.Strings(schema.Required)
-	}
-
-	if schema.Properties != nil {
-		for _, prop := range schema.Properties {
-			sortRequiredFields(&prop)
-		}
-	}
-
-	if schema.Items != nil && schema.Items.Schema != nil {
-		sortRequiredFields(schema.Items.Schema)
-	}
-
-	if schema.AdditionalProperties != nil && schema.AdditionalProperties.Schema != nil {
-		sortRequiredFields(schema.AdditionalProperties.Schema)
-	}
 }

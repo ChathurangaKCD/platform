@@ -3,6 +3,7 @@ package schema
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 
 	"github.com/chathurangada/cel_playground/renderer2/pkg/types"
 	"github.com/kubernetes-sigs/kro/pkg/simpleschema"
@@ -11,33 +12,21 @@ import (
 
 // ComponentDefaults computes default values defined in a ComponentTypeDefinition schema.
 func ComponentDefaults(schema types.Schema) (map[string]interface{}, error) {
-	return computeDefaults(schema.Parameters, schema.EnvOverrides, schema.Types)
+	return computeDefaults(schema)
 }
 
 // AddonDefaults computes default values defined in an Addon schema.
 func AddonDefaults(schema types.Schema) (map[string]interface{}, error) {
-	return computeDefaults(schema.Parameters, schema.EnvOverrides, schema.Types)
+	return computeDefaults(schema)
 }
 
-func computeDefaults(parameters map[string]interface{}, envOverrides map[string]interface{}, customTypes map[string]interface{}) (map[string]interface{}, error) {
-	merged := make(map[string]interface{})
-	for key, value := range parameters {
-		merged[key] = value
-	}
-	for key, value := range envOverrides {
-		merged[key] = value
-	}
-
-	if len(merged) == 0 {
-		return map[string]interface{}{}, nil
-	}
-
-	jsonSchema, err := simpleschema.ToOpenAPISpec(merged, customTypes)
+func computeDefaults(spec types.Schema) (map[string]interface{}, error) {
+	openAPISchema, err := JSONSchemaFromSpec(spec)
 	if err != nil {
-		return nil, fmt.Errorf("failed to convert schema to OpenAPI: %w", err)
+		return nil, err
 	}
 
-	defaults := extractObjectDefaults(jsonSchema)
+	defaults := extractObjectDefaults(openAPISchema)
 	if defaults == nil {
 		return map[string]interface{}{}, nil
 	}
@@ -47,6 +36,25 @@ func computeDefaults(parameters map[string]interface{}, envOverrides map[string]
 		return map[string]interface{}{}, nil
 	}
 	return result, nil
+}
+
+// JSONSchemaFromSpec converts a schema definition into an OpenAPI JSONSchema object.
+func JSONSchemaFromSpec(spec types.Schema) (*extv1.JSONSchemaProps, error) {
+	merged := mergeSchemaSpec(spec)
+	if len(merged) == 0 {
+		return &extv1.JSONSchemaProps{
+			Type:       "object",
+			Properties: map[string]extv1.JSONSchemaProps{},
+		}, nil
+	}
+
+	jsonSchema, err := simpleschema.ToOpenAPISpec(merged, spec.Types)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert schema to OpenAPI: %w", err)
+	}
+
+	sortRequiredFields(jsonSchema)
+	return jsonSchema, nil
 }
 
 func extractObjectDefaults(schema *extv1.JSONSchemaProps) interface{} {
@@ -96,4 +104,39 @@ func decodeJSON(raw []byte) (interface{}, error) {
 		return nil, err
 	}
 	return out, nil
+}
+
+func mergeSchemaSpec(spec types.Schema) map[string]interface{} {
+	merged := make(map[string]interface{})
+	for key, value := range spec.Parameters {
+		merged[key] = value
+	}
+	for key, value := range spec.EnvOverrides {
+		merged[key] = value
+	}
+	return merged
+}
+
+func sortRequiredFields(schema *extv1.JSONSchemaProps) {
+	if schema == nil {
+		return
+	}
+
+	if len(schema.Required) > 0 {
+		sort.Strings(schema.Required)
+	}
+
+	if schema.Properties != nil {
+		for _, prop := range schema.Properties {
+			sortRequiredFields(&prop)
+		}
+	}
+
+	if schema.Items != nil && schema.Items.Schema != nil {
+		sortRequiredFields(schema.Items.Schema)
+	}
+
+	if schema.AdditionalProperties != nil && schema.AdditionalProperties.Schema != nil {
+		sortRequiredFields(schema.AdditionalProperties.Schema)
+	}
 }
