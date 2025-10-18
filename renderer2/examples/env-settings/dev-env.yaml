@@ -1,0 +1,41 @@
+apiVersion: openchoreo.dev/v1alpha1
+kind: EnvSettings
+metadata:
+  name: web-service-dev
+spec:
+  componentRef:
+    name: web-service
+    namespace: default
+  environment: development
+
+  # Override component envOverrides for dev
+  overrides:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+  # Override addon envOverrides by instanceId
+  addonOverrides:
+    # Override PVC addon (instanceId: app-data)
+    app-data:
+      size: 5Gi
+      storageClass: standard
+
+    # Override sidecar addon (instanceId: logger)
+    logger:
+      resources:
+        requests:
+          cpu: 25m
+          memory: 32Mi
+        limits:
+          cpu: 50m
+          memory: 64Mi
+
+    # Override emptydir addon (instanceId: shared-logs)
+    shared-logs:
+      sizeLimit: 512Mi
+      medium: ""

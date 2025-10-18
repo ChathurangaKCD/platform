@@ -17,10 +17,10 @@ func TestApplyPatch(t *testing.T) {
 	}
 
 	tests := []struct {
-		name    string
-		initial string
-		patches []types.Patch
-		want    string
+		name       string
+		initial    string
+		operations []types.JSONPatchOperation
+		want       string
 	}{
 		{
 			name: "add env entry via array filter",
@@ -37,7 +37,7 @@ spec:
             - name: A
               value: "1"
 `,
-			patches: []types.Patch{
+			operations: []types.JSONPatchOperation{
 				{
 					Op:   "add",
 					Path: "/spec/template/spec/containers/[?(@.name=='app')]/env/-",
@@ -73,7 +73,7 @@ spec:
         - name: app
           image: app:v1
 `,
-			patches: []types.Patch{
+			operations: []types.JSONPatchOperation{
 				{
 					Op:    "replace",
 					Path:  "/spec/template/spec/containers/0/image",
@@ -103,7 +103,7 @@ spec:
             - name: B
               value: "2"
 `,
-			patches: []types.Patch{
+			operations: []types.JSONPatchOperation{
 				{
 					Op:   "remove",
 					Path: "/spec/template/spec/containers/[?(@.name=='app')]/env/0",
@@ -129,7 +129,7 @@ spec:
       annotations:
         existing: "true"
 `,
-			patches: []types.Patch{
+			operations: []types.JSONPatchOperation{
 				{
 					Op:   "merge",
 					Path: "/spec/template/metadata/annotations",
@@ -148,6 +148,35 @@ spec:
 `,
 		},
 		{
+			name: "test operation success",
+			initial: `
+spec:
+  template:
+    metadata:
+      annotations:
+        existing: "true"
+`,
+			operations: []types.JSONPatchOperation{
+				{
+					Op:    "test",
+					Path:  "/spec/template/metadata/annotations/existing",
+					Value: "true",
+				},
+				{
+					Op:    "replace",
+					Path:  "/spec/template/metadata/annotations/existing",
+					Value: "updated",
+				},
+			},
+			want: `
+spec:
+  template:
+    metadata:
+      annotations:
+        existing: updated
+`,
+		},
+		{
 			name: "add env entry for multiple matches",
 			initial: `
 spec:
@@ -161,7 +190,7 @@ spec:
           role: worker
           env: []
 `,
-			patches: []types.Patch{
+			operations: []types.JSONPatchOperation{
 				{
 					Op:   "add",
 					Path: "/spec/template/spec/containers/[?(@.role=='worker')]/env/-",
@@ -200,9 +229,9 @@ spec:
 				t.Fatalf("failed to unmarshal initial YAML: %v", err)
 			}
 
-			for _, p := range tt.patches {
-				if err := ApplyPatch(resource, p, nil, render); err != nil {
-					t.Fatalf("ApplyPatch error = %v", err)
+			for _, op := range tt.operations {
+				if err := ApplyOperation(resource, op, nil, render); err != nil {
+					t.Fatalf("ApplyOperation error = %v", err)
 				}
 			}
 
@@ -215,6 +244,35 @@ spec:
 				t.Fatalf("resource mismatch (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestApplyPatchTestOpFailure(t *testing.T) {
+	render := func(v interface{}, _ map[string]interface{}) (interface{}, error) {
+		return v, nil
+	}
+
+	initial := `
+spec:
+  template:
+    metadata:
+      annotations:
+        existing: "true"
+`
+
+	var resource map[string]interface{}
+	if err := yaml.Unmarshal([]byte(initial), &resource); err != nil {
+		t.Fatalf("failed to unmarshal initial YAML: %v", err)
+	}
+
+	op := types.JSONPatchOperation{
+		Op:    "test",
+		Path:  "/spec/template/metadata/annotations/existing",
+		Value: "false",
+	}
+
+	if err := ApplyOperation(resource, op, nil, render); err == nil {
+		t.Fatalf("expected test operation to fail but succeeded")
 	}
 }
 

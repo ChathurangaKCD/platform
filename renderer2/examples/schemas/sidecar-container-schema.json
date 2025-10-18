@@ -1,0 +1,79 @@
+{
+  "type": "object",
+  "required": [
+    "image",
+    "name"
+  ],
+  "properties": {
+    "args": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "command": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "env": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "value"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "image": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "resources": {
+      "type": "object",
+      "default": {},
+      "properties": {
+        "limits": {
+          "type": "object",
+          "default": {},
+          "properties": {
+            "cpu": {
+              "type": "string",
+              "default": "200m"
+            },
+            "memory": {
+              "type": "string",
+              "default": "256Mi"
+            }
+          }
+        },
+        "requests": {
+          "type": "object",
+          "default": {},
+          "properties": {
+            "cpu": {
+              "type": "string",
+              "default": "50m"
+            },
+            "memory": {
+              "type": "string",
+              "default": "128Mi"
+            }
+          }
+        }
+      }
+    }
+  }
+}

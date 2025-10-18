@@ -1,0 +1,62 @@
+{
+    "podSelectors": {
+        "openchoreo.io/component-id": "web-service-12345",
+        "openchoreo.io/project-id": "my-project-67890",
+        "openchoreo.io/environment": "production"
+    },
+    "build": {
+        "image": "gcr.io/my-project/web-service:v1.0.0"
+    },
+    "configurations": {
+        "envs": [
+            {
+                "name": "APP_ENV",
+                "value": "production"
+            },
+            {
+                "name": "LOG_LEVEL",
+                "value": "info"
+            },
+            {
+                "name": "MAX_CONNECTIONS",
+                "value": "100"
+            }
+        ],
+        "files": [
+            {
+                "name": "app-config",
+                "mountPath": "/etc/app/config.yaml",
+                "content": "database:\nhost: localhost\nport: 5432\n"
+            },
+            {
+                "name": "feature-flags",
+                "mountPath": "/etc/app/feature-flags.json",
+                "content": "{\"featureA\": true, \"featureB\": false}"
+            }
+        ]
+    },
+    "secrets": {
+        "envs": [
+            {
+                "name": "DATABASE_PASSWORD",
+                "valueRef": "db-credentials/password"
+            },
+            {
+                "name": "API_KEY",
+                "valueRef": "api-secrets/key"
+            }
+        ],
+        "files": [
+            {
+                "name": "tls-cert",
+                "mountPath": "/etc/secrets/tls.crt",
+                "valueRef": "r1234"
+            },
+            {
+                "name": "tls.key",
+                "mountPath": "/etc/secrets/tls.key",
+                "valueRef": "r1235"
+            }
+        ]
+    }
+}

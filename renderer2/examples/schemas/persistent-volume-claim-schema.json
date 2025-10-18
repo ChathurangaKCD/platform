@@ -1,0 +1,39 @@
+{
+  "type": "object",
+  "required": [
+    "mountPath",
+    "volumeName"
+  ],
+  "properties": {
+    "accessMode": {
+      "type": "string",
+      "default": "ReadWriteOnce"
+    },
+    "containerName": {
+      "type": "string",
+      "default": "app"
+    },
+    "mountPath": {
+      "type": "string"
+    },
+    "readOnly": {
+      "type": "boolean",
+      "default": false
+    },
+    "size": {
+      "type": "string",
+      "default": "10Gi"
+    },
+    "storageClass": {
+      "type": "string",
+      "default": "standard"
+    },
+    "subPath": {
+      "type": "string",
+      "default": ""
+    },
+    "volumeName": {
+      "type": "string"
+    }
+  }
+}

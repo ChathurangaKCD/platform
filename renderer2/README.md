@@ -51,12 +51,18 @@ Sets or appends a value. If the final path segment is:
 **Example**: add a new volume mount to the app container.
 
 ```yaml
-patch:
-  op: add
-  path: /spec/template/spec/containers/[?(@.name=='app')]/volumeMounts/-
-  value:
-    name: logs
-    mountPath: /var/log/app
+patches:
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      where: ${resource.metadata.name == metadata.name}
+    operations:
+      - op: add
+        path: /spec/template/spec/containers/[?(@.name=='app')]/volumeMounts/-
+        value:
+          name: logs
+          mountPath: /var/log/app
 ```
 
 ### `replace`
@@ -66,10 +72,16 @@ Same path semantics as `add`, but the target must already exist (otherwise the p
 **Example**: force the first container image tag.
 
 ```yaml
-patch:
-  op: replace
-  path: /spec/template/spec/containers/0/image
-  value: ${spec.forcedImage}
+patches:
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: ${metadata.name}
+    operations:
+      - op: replace
+        path: /spec/template/spec/containers/0/image
+        value: ${spec.forcedImage}
 ```
 
 ### `remove`
@@ -79,9 +91,14 @@ Deletes the field or array element at the path. Array filters can be used to dro
 **Example**: remove the pod anti-affinity from a Deployment when a feature flag is disabled.
 
 ```yaml
-patch:
-  op: remove
-  path: /spec/template/spec/affinity/podAntiAffinity
+patches:
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+    operations:
+      - op: remove
+        path: /spec/template/spec/affinity/podAntiAffinity
 ```
 
 ### `merge`
@@ -91,24 +108,39 @@ Performs a deep merge of maps. This is handy when you need to add or override a 
 **Example**: standardize annotations without wiping out user-defined ones.
 
 ```yaml
-patch:
-  op: merge
-  path: /spec/template/metadata/annotations
-  value:
-    security.openchoreo.dev/enforce: "true"
-    sidecar.opa.policy: sandbox
+patches:
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      where: ${has(resource.metadata.annotations) && resource.metadata.annotations.exists(k, k.key == "team")}
+    operations:
+      - op: merge
+        path: /spec/template/metadata/annotations
+        value:
+          security.openchoreo.dev/enforce: "true"
+          sidecar.opa.policy: sandbox
 ```
 
 Another example, merging CPU/memory requests into the default container:
 
 ```yaml
-patch:
-  op: merge
-  path: /spec/template/spec/containers/[?(@.name=='app')]/resources/requests
-  value:
-    cpu: 500m
-    memory: 512Mi
+patches:
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+    operations:
+      - op: merge
+        path: /spec/template/spec/containers/[?(@.name=='app')]/resources/requests
+        value:
+          cpu: 500m
+          memory: 512Mi
 ```
+
+### `test`, `copy`, `move`
+
+Because renderer2 delegates to the standard JSON Patch engine, addons can also use `test`, `copy`, and `move`. A failing `test` aborts the addon with a clear error.
 
 ## Array filters
 

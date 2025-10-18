@@ -14,7 +14,7 @@ import (
 )
 
 func main() {
-	examplesDir := filepath.Join("..", "renderer", "examples")
+	examplesDir := "examples"
 	outputDir := filepath.Join(examplesDir, "expected-output")
 
 	engine := template.NewEngine()

@@ -1,0 +1,47 @@
+{
+  "type": "object",
+  "required": [
+    "mounts",
+    "volumeName"
+  ],
+  "properties": {
+    "medium": {
+      "type": "string",
+      "default": ""
+    },
+    "mounts": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "required": [
+          "containerName",
+          "mountPath"
+        ],
+        "properties": {
+          "containerName": {
+            "type": "string"
+          },
+          "mountPath": {
+            "type": "string"
+          },
+          "readOnly": {
+            "type": "boolean",
+            "default": false
+          },
+          "subPath": {
+            "type": "string",
+            "default": ""
+          }
+        }
+      }
+    },
+    "sizeLimit": {
+      "type": "string",
+      "default": ""
+    },
+    "volumeName": {
+      "type": "string"
+    }
+  }
+}

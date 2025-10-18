@@ -1,0 +1,153 @@
+apiVersion: openchoreo.dev/v1alpha1
+kind: ComponentTypeDefinition
+metadata:
+  name: deployment-component
+spec:
+  # Schema defines what developers can configure
+  schema:
+    parameters:
+      # Static across environments
+      pdbEnabled: boolean | default=false
+      replicas: integer | default=1
+      imagePullPolicy: string | default=IfNotPresent
+
+    envOverrides:
+      # Can vary per environment
+      resources:
+        requests:
+          cpu: string | default=100m
+          memory: string | default=256Mi
+        limits:
+          cpu: string | default=500m
+          memory: string | default=512Mi
+
+  # Templates generate K8s resources dynamically
+  resources:
+    - id: deployment
+      template:
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: ${metadata.name}
+          namespace: ${metadata.namespace}
+        spec:
+          replicas: ${spec.replicas}
+          selector:
+            matchLabels: |
+              ${podSelectors}
+          template:
+            metadata:
+              labels: |
+                ${merge({"app": metadata.name}, podSelectors)}
+            spec:
+              containers:
+                - name: app
+                  image: ${build.image}
+                  imagePullPolicy: ${spec.imagePullPolicy}
+                  envFrom: |
+                    ${(has(configurations.envs) && configurations.envs.size() > 0 ?
+                      [{
+                        "configMapRef": {
+                          "name": metadata.name + "-env-config"
+                        }
+                      }] : []) +
+                     (has(secrets.envs) && secrets.envs.size() > 0 ?
+                      [{
+                        "secretRef": {
+                          "name": metadata.name + "-secret-envs"
+                        }
+                      }] : [])}
+                  volumeMounts: |
+                    ${has(configurations.files) && configurations.files.size() > 0 || has(secrets.files) && secrets.files.size() > 0 ?
+                      (has(configurations.files) && configurations.files.size() > 0 ?
+                        configurations.files.map(f, {
+                          "name": f.name,
+                          "mountPath": f.mountPath,
+                          "subPath": "config"
+                        }) : []) +
+                       (has(secrets.files) && secrets.files.size() > 0 ?
+                        secrets.files.map(f, {
+                          "name": f.name,
+                          "mountPath": f.mountPath,
+                          "subPath": f.name
+                        }) : [])
+                    : omit()}
+                  resources:
+                    requests:
+                      cpu: ${spec.resources.requests.cpu}
+                      memory: ${spec.resources.requests.memory}
+                    limits:
+                      cpu: ${spec.resources.limits.cpu}
+                      memory: ${spec.resources.limits.memory}
+              volumes: |
+                ${has(configurations.files) && configurations.files.size() > 0 || has(secrets.files) && secrets.files.size() > 0 ?
+                  (has(configurations.files) && configurations.files.size() > 0 ?
+                    configurations.files.map(f, {
+                      "name": f.name,
+                      "configMap": {
+                        "name": metadata.name + "-config-" + f.name
+                      }
+                    }) : []) +
+                   (has(secrets.files) && secrets.files.size() > 0 ?
+                    secrets.files.map(f, {
+                      "name": f.name,
+                      "secret": {
+                        "secretName": metadata.name + "-secret-" + f.name
+                      }
+                    }) : [])
+                : omit()}
+    - id: pdb
+      includeWhen: ${spec.pdbEnabled}
+      template:
+        apiVersion: policy/v1
+        kind: PodDisruptionBudget
+        metadata:
+          name: ${metadata.name}
+        spec:
+          selector:
+            matchLabels:
+              app: ${metadata.name}
+          minAvailable: 1
+    - id: env-configs
+      includeWhen: ${has(configurations.envs) && configurations.envs.size() > 0}
+      template:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: ${metadata.name}-env-config
+          namespace: ${metadata.namespace}
+        data: "${configurations.envs.transformMapEntry(i, e, {e.name: e.value})}"
+    - id: file-configs
+      forEach: ${configurations.files}
+      var: configFile
+      template:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: ${metadata.name}-config-${configFile.name}
+          namespace: ${metadata.namespace}
+        data:
+          config: ${configFile.content}
+    - id: secret-envs
+      includeWhen: ${has(secrets.envs) && secrets.envs.size() > 0}
+      template:
+        apiVersion: external-secrets.io/v1beta1
+        kind: ExternalSecretStore
+        metadata:
+          name: ${metadata.name}-secret-envs
+          namespace: ${metadata.namespace}
+        spec:
+          data: '${secrets.envs.map(e, {"key": e.name, "valueRef": e.valueRef})}'
+    - id: secret-files
+      forEach: ${secrets.files}
+      var: secretFile
+      template:
+        apiVersion: external-secrets.io/v1beta1
+        kind: ExternalSecretStore
+        metadata:
+          name: ${metadata.name}-secret-${secretFile.name}
+          namespace: ${metadata.namespace}
+        spec:
+          data:
+            - key: ${secretFile.name}
+              valueRef: ${secretFile.valueRef}

@@ -1,6 +1,6 @@
 # Adapter plan: renderer2 → kyaml JSON Patch
 
-Goal (implemented in `pkg/patch`): keep renderer2’s expressive path syntax (CEL-evaluated strings, array filters, merge option) while delegating the actual RFC 6902 work (“add”, “replace”, “remove”) to a battle-tested library such as `github.com/evanphx/json-patch/v5`.
+Goal (implemented in `pkg/patch`/`pkg/pipeline`): keep renderer2’s expressive path syntax (CEL-evaluated strings, array filters, merge option, CEL-based targeting) while delegating the actual RFC 6902 work (“add”, “replace”, “remove”, “test”, “copy”, “move”) to a battle-tested library such as `github.com/evanphx/json-patch/v5`.
 
 ## Current behaviour to preserve
 

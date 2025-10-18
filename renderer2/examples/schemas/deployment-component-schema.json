@@ -1,0 +1,52 @@
+{
+  "type": "object",
+  "default": {},
+  "properties": {
+    "imagePullPolicy": {
+      "type": "string",
+      "default": "IfNotPresent"
+    },
+    "pdbEnabled": {
+      "type": "boolean",
+      "default": false
+    },
+    "replicas": {
+      "type": "integer",
+      "default": 1
+    },
+    "resources": {
+      "type": "object",
+      "default": {},
+      "properties": {
+        "limits": {
+          "type": "object",
+          "default": {},
+          "properties": {
+            "cpu": {
+              "type": "string",
+              "default": "500m"
+            },
+            "memory": {
+              "type": "string",
+              "default": "512Mi"
+            }
+          }
+        },
+        "requests": {
+          "type": "object",
+          "default": {},
+          "properties": {
+            "cpu": {
+              "type": "string",
+              "default": "100m"
+            },
+            "memory": {
+              "type": "string",
+              "default": "256Mi"
+            }
+          }
+        }
+      }
+    }
+  }
+}

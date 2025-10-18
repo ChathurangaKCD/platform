@@ -84,6 +84,44 @@ func (r *RendererCoordinates) ApplyAddon(
 func (r *RendererCoordinates) applyPatchSpec(resources []map[string]interface{}, spec types.PatchSpec, inputs map[string]interface{}, matcher patch.Matcher) error {
 	targets := patch.FindTargetResources(resources, spec.Target, matcher)
 
+	if len(spec.Operations) == 0 {
+		return nil
+	}
+
+	// Helper to evaluate the where clause for a given target with provided inputs.
+	matchTarget := func(where string, target map[string]interface{}, baseInputs map[string]interface{}) (bool, error) {
+		if where == "" {
+			return true, nil
+		}
+		// Clone inputs so we don't mutate the caller's map.
+		filterInputs := cloneMap(baseInputs)
+		filterInputs["resource"] = target
+
+		result, err := r.TemplateEngine.Render(where, filterInputs)
+		if err != nil {
+			if isMissingDataError(err) {
+				return false, nil
+			}
+			return false, fmt.Errorf("failed to evaluate target.where: %w", err)
+		}
+		boolResult, ok := result.(bool)
+		if !ok {
+			return false, fmt.Errorf("target.where must evaluate to a boolean, got %T", result)
+		}
+		return boolResult, nil
+	}
+
+	executeOperations := func(target map[string]interface{}, baseInputs map[string]interface{}) error {
+		opInputs := cloneMap(baseInputs)
+		opInputs["resource"] = target
+		for _, op := range spec.Operations {
+			if err := patch.ApplyOperation(target, op, opInputs, r.TemplateEngine.Render); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
 	if spec.ForEach != "" {
 		// Evaluate iteration list
 		itemsRaw, err := r.TemplateEngine.Render(spec.ForEach, inputs)
@@ -106,7 +144,14 @@ func (r *RendererCoordinates) applyPatchSpec(resources []map[string]interface{},
 			itemInputs[varName] = item
 
 			for _, target := range targets {
-				if err := patch.ApplyPatch(target, spec.Patch, itemInputs, r.TemplateEngine.Render); err != nil {
+				match, err := matchTarget(spec.Target.Where, target, itemInputs)
+				if err != nil {
+					return err
+				}
+				if !match {
+					continue
+				}
+				if err := executeOperations(target, itemInputs); err != nil {
 					return err
 				}
 			}
@@ -115,7 +160,14 @@ func (r *RendererCoordinates) applyPatchSpec(resources []map[string]interface{},
 	}
 
 	for _, target := range targets {
-		if err := patch.ApplyPatch(target, spec.Patch, inputs, r.TemplateEngine.Render); err != nil {
+		match, err := matchTarget(spec.Target.Where, target, inputs)
+		if err != nil {
+			return err
+		}
+		if !match {
+			continue
+		}
+		if err := executeOperations(target, inputs); err != nil {
 			return err
 		}
 	}

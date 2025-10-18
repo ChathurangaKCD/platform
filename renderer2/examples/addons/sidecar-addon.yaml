@@ -1,0 +1,55 @@
+apiVersion: openchoreo.dev/v1alpha1
+kind: Addon
+metadata:
+  name: sidecar-container
+spec:
+  displayName: "Sidecar Container"
+
+  schema:
+    # Define custom type for environment variables
+    types:
+      EnvVar:
+        name: string | required=true
+        value: string | required=true
+
+    parameters:
+      name: string | required=true
+      image: string | required=true
+      args: '[]string'
+      command: '[]string'
+      env: '[]EnvVar'
+
+    envOverrides:
+      resources:
+        requests:
+          cpu: string | default=50m
+          memory: string | default=128Mi
+        limits:
+          cpu: string | default=200m
+          memory: string | default=256Mi
+
+  # Patch the Deployment to add sidecar container
+  patches:
+    - target:
+        group: apps
+        version: v1
+        kind: Deployment
+      operations:
+        - op: add
+          path: /spec/template/spec/containers/-
+          value:
+            name: ${spec.name}
+            image: ${spec.image}
+            command: |
+              ${has(spec.command) && spec.command.size() > 0 ? spec.command : omit()}
+            args: |
+              ${has(spec.args) && spec.args.size() > 0 ? spec.args : omit()}
+            env: |
+              ${has(spec.env) && spec.env.size() > 0 ? spec.env : omit()}
+            resources:
+              requests:
+                cpu: ${spec.resources.requests.cpu}
+                memory: ${spec.resources.requests.memory}
+              limits:
+                cpu: ${spec.resources.limits.cpu}
+                memory: ${spec.resources.limits.memory}

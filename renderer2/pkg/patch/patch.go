@@ -15,8 +15,8 @@ import (
 var filterExpr = regexp.MustCompile(`^@\.([A-Za-z0-9_.-]+)\s*==\s*['"](.*)['"]$`)
 
 // ApplyPatch applies a single patch operation against a target resource.
-func ApplyPatch(target map[string]interface{}, patch types.Patch, inputs map[string]interface{}, render func(interface{}, map[string]interface{}) (interface{}, error)) error {
-	pathValue, err := render(patch.Path, inputs)
+func ApplyOperation(target map[string]interface{}, operation types.JSONPatchOperation, inputs map[string]interface{}, render func(interface{}, map[string]interface{}) (interface{}, error)) error {
+	pathValue, err := render(operation.Path, inputs)
 	if err != nil {
 		return fmt.Errorf("failed to evaluate patch path: %w", err)
 	}
@@ -27,21 +27,21 @@ func ApplyPatch(target map[string]interface{}, patch types.Patch, inputs map[str
 	}
 
 	var value interface{}
-	if patch.Op != "remove" {
-		value, err = render(patch.Value, inputs)
+	if operation.Op != "remove" {
+		value, err = render(operation.Value, inputs)
 		if err != nil {
 			return fmt.Errorf("failed to evaluate patch value: %w", err)
 		}
 	}
 
-	op := strings.ToLower(patch.Op)
+	op := strings.ToLower(operation.Op)
 	switch op {
-	case "add", "replace", "remove":
+	case "add", "replace", "remove", "test", "move", "copy":
 		return applyRFC6902(target, op, pathStr, value)
 	case "merge":
 		return applyMerge(target, pathStr, value)
 	default:
-		return fmt.Errorf("unknown patch operation: %s", patch.Op)
+		return fmt.Errorf("unknown patch operation: %s", operation.Op)
 	}
 }
 
@@ -605,22 +605,31 @@ func DeepMerge(base, override map[string]interface{}) map[string]interface{} {
 func FindTargetResources(resources []map[string]interface{}, target types.TargetSpec, selector Matcher) []map[string]interface{} {
 	var matches []map[string]interface{}
 	for _, resource := range resources {
-		if target.ResourceType != "" {
-			kind, ok := resource["kind"].(string)
-			if !ok || kind != target.ResourceType {
+		if target.Kind != "" {
+			if kind, ok := resource["kind"].(string); !ok || kind != target.Kind {
 				continue
 			}
 		}
-		if target.ResourceID != "" {
-			if id, ok := resource["id"].(string); !ok || id != target.ResourceID {
+
+		group := ""
+		version := ""
+		if gv, ok := resource["apiVersion"].(string); ok {
+			group, version = splitAPIVersion(gv)
+		}
+		if target.Group != "" && group != target.Group {
+			continue
+		}
+		if target.Version != "" && version != target.Version {
+			continue
+		}
+
+		if target.Name != "" {
+			metadata, _ := resource["metadata"].(map[string]interface{})
+			if metadata == nil || metadata["name"] != target.Name {
 				continue
 			}
 		}
-		if target.Selector != "" && selector != nil {
-			if !selector(resource, target.Selector) {
-				continue
-			}
-		}
+
 		matches = append(matches, resource)
 	}
 	return matches
@@ -628,3 +637,14 @@ func FindTargetResources(resources []map[string]interface{}, target types.Target
 
 // Matcher evaluates if a resource satisfies a selector expression.
 type Matcher func(resource map[string]interface{}, selector string) bool
+
+func splitAPIVersion(apiVersion string) (group, version string) {
+	if apiVersion == "" {
+		return "", ""
+	}
+	if strings.Contains(apiVersion, "/") {
+		parts := strings.SplitN(apiVersion, "/", 2)
+		return parts[0], parts[1]
+	}
+	return "", apiVersion
+}

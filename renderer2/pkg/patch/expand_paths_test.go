@@ -95,15 +95,15 @@ spec:
           env:
             - name: SHARED
               value: "true"
-            - name: UNIQUE
-              value: "yes"
+            - name: SHARED
+              value: "alt"
         - name: worker-b
           role: worker
           env:
             - name: SHARED
               value: "true"
-            - name: EXTRA
-              value: "no"
+            - name: SHARED
+              value: "alt"
         - name: helper
           role: helper
           env:
@@ -113,7 +113,9 @@ spec:
 			path: "/spec/template/spec/containers/[?(@.role=='worker')]/env/[?(@.name=='SHARED')]/value",
 			want: []string{
 				"/spec/template/spec/containers/0/env/0/value",
+				"/spec/template/spec/containers/0/env/1/value",
 				"/spec/template/spec/containers/1/env/0/value",
+				"/spec/template/spec/containers/1/env/1/value",
 			},
 		},
 	}

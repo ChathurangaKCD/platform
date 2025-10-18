@@ -53,19 +53,21 @@ type AddonSpec struct {
 }
 
 type PatchSpec struct {
-	ForEach string     `yaml:"forEach,omitempty"`
-	Var     string     `yaml:"var,omitempty"`
-	Target  TargetSpec `yaml:"target"`
-	Patch   Patch      `yaml:"patch"`
+	ForEach    string               `yaml:"forEach,omitempty"`
+	Var        string               `yaml:"var,omitempty"`
+	Target     TargetSpec           `yaml:"target"`
+	Operations []JSONPatchOperation `yaml:"operations"`
 }
 
 type TargetSpec struct {
-	ResourceType string `yaml:"resourceType,omitempty"`
-	ResourceID   string `yaml:"resourceId,omitempty"`
-	Selector     string `yaml:"selector,omitempty"`
+	Kind    string `yaml:"kind,omitempty"`
+	Group   string `yaml:"group,omitempty"`
+	Version string `yaml:"version,omitempty"`
+	Name    string `yaml:"name,omitempty"`
+	Where   string `yaml:"where,omitempty"`
 }
 
-type Patch struct {
+type JSONPatchOperation struct {
 	Op    string      `yaml:"op"`
 	Path  string      `yaml:"path"`
 	Value interface{} `yaml:"value,omitempty"`
