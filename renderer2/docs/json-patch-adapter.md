@@ -1,6 +1,6 @@
 # Adapter plan: renderer2 → kyaml JSON Patch
 
-Goal: keep renderer2’s expressive path syntax (CEL-evaluated strings, array filters, merge option) while delegating the actual RFC 6902 work (“add”, “replace”, “remove”) to a battle-tested library such as `kyaml` / `evanphx/json-patch`.
+Goal (implemented in `pkg/patch`): keep renderer2’s expressive path syntax (CEL-evaluated strings, array filters, merge option) while delegating the actual RFC 6902 work (“add”, “replace”, “remove”) to a battle-tested library such as `github.com/evanphx/json-patch/v5`.
 
 ## Current behaviour to preserve
 
@@ -41,8 +41,8 @@ RFC 6902 requires the parent of the target pointer to exist. To keep previous 
 - For each pointer returned by the resolver:
   - Inspect all but the last segment; create intermediate maps in the resource if missing.
   - For array parents:
-    - If the array is missing and the final op is an append (`/-`), create an empty slice first.
-    - For numeric indices, expand the slice to the required length (fill with `nil`) so JSON patch can slot the element.
+    - If the array is missing and the final op is an append (`/-`), create an empty slice.
+    - **No implicit extension for numeric indices.** If a pointer uses an explicit index (`/containers/2/...`) and that index does not exist, let the RFC 6902 engine return an error. Authors should add the entire array element explicitly in that case.
 
 This logic can reuse portions of the current `setValue` helper; the key difference is that we prepare the structure *before* invoking jsonpatch.
 
@@ -90,4 +90,4 @@ Applying operations sequentially keeps the resource up to date for the next poin
    - Removal of filtered entries.
    - Merge vs add interplay.
 
-This plan retains renderer2’s expressive patch syntax while showcasing that the actual JSON Patch application relies on a widely used library.
+This design now powers `pkg/patch`: array-filtered paths are resolved into concrete JSON Pointers, parents are created for `add`, and each operation is executed through the json-patch engine. The custom deep-merge handler remains for `merge`.

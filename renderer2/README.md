@@ -38,7 +38,7 @@ The command re-generates JSON schemas under `renderer/examples/schemas/` and wri
 
 ## Patch operations
 
-Addons patch already-rendered resources using JSON pointer–like paths with a few extensions (array filters, deep merge). The engine currently supports the following operations:
+Addons patch already-rendered resources using JSON pointer–like paths with a few extensions (array filters, deep merge). Under the hood, renderer2 now delegates `add`, `replace`, and `remove` to the battle-tested [`github.com/evanphx/json-patch`](https://github.com/evanphx/json-patch) implementation; array filters are resolved into concrete JSON Pointer paths before we invoke the library. A custom deep-merge handler is retained for `merge`. The engine supports the following operations:
 
 ### `add`
 

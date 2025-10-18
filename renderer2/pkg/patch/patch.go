@@ -1,40 +1,43 @@
 package patch
 
 import (
+	"encoding/json"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
+
+	jsonpatch "github.com/evanphx/json-patch/v5"
 
 	"github.com/chathurangada/cel_playground/renderer2/pkg/types"
 )
 
+var filterExpr = regexp.MustCompile(`^@\.([A-Za-z0-9_.-]+)\s*==\s*['"](.*)['"]$`)
+
 // ApplyPatch applies a single patch operation against a target resource.
-func ApplyPatch(target map[string]interface{}, patch types.Patch, inputs map[string]interface{}, renderString func(interface{}, map[string]interface{}) (interface{}, error)) error {
-	path, err := renderString(patch.Path, inputs)
+func ApplyPatch(target map[string]interface{}, patch types.Patch, inputs map[string]interface{}, render func(interface{}, map[string]interface{}) (interface{}, error)) error {
+	pathValue, err := render(patch.Path, inputs)
 	if err != nil {
 		return fmt.Errorf("failed to evaluate patch path: %w", err)
 	}
 
-	pathStr, ok := path.(string)
+	pathStr, ok := pathValue.(string)
 	if !ok {
-		return fmt.Errorf("patch path must evaluate to a string, got %T", path)
+		return fmt.Errorf("patch path must evaluate to a string, got %T", pathValue)
 	}
 
 	var value interface{}
 	if patch.Op != "remove" {
-		value, err = renderString(patch.Value, inputs)
+		value, err = render(patch.Value, inputs)
 		if err != nil {
 			return fmt.Errorf("failed to evaluate patch value: %w", err)
 		}
 	}
 
-	switch patch.Op {
-	case "add":
-		return applyAdd(target, pathStr, value)
-	case "replace":
-		return applyReplace(target, pathStr, value)
-	case "remove":
-		return applyRemove(target, pathStr)
+	op := strings.ToLower(patch.Op)
+	switch op {
+	case "add", "replace", "remove":
+		return applyRFC6902(target, op, pathStr, value)
 	case "merge":
 		return applyMerge(target, pathStr, value)
 	default:
@@ -42,254 +45,549 @@ func ApplyPatch(target map[string]interface{}, patch types.Patch, inputs map[str
 	}
 }
 
-func applyAdd(target map[string]interface{}, path string, value interface{}) error {
-	if strings.Contains(path, "[?(") {
-		return applyPathWithArrayFilter(target, path, value, "add")
+func applyRFC6902(target map[string]interface{}, op, rawPath string, value interface{}) error {
+	resolved, err := expandPaths(target, rawPath)
+	if err != nil {
+		return err
+	}
+	if len(resolved) == 0 {
+		// No matches (e.g., filter didn't match anything); treat as no-op.
+		return nil
 	}
 
-	parts := parsePath(path)
-	if len(parts) == 0 {
-		return fmt.Errorf("empty path")
+	for _, pointer := range resolved {
+		if op == "add" {
+			if err := ensureParentExists(target, pointer); err != nil {
+				return err
+			}
+		}
+		if err := applyJSONPatch(target, op, pointer, value); err != nil {
+			return err
+		}
 	}
-
-	_, err := setValue(target, parts, value, "add", "")
-	return err
+	return nil
 }
 
-func applyReplace(target map[string]interface{}, path string, value interface{}) error {
-	if strings.Contains(path, "[?(") {
-		return applyPathWithArrayFilter(target, path, value, "replace")
-	}
-
-	parts := parsePath(path)
-	if len(parts) == 0 {
-		return fmt.Errorf("empty path")
-	}
-
-	_, err := setValue(target, parts, value, "replace", "")
-	return err
-}
-
-func applyRemove(target map[string]interface{}, path string) error {
-	if strings.Contains(path, "[?(") {
-		return applyPathWithArrayFilter(target, path, nil, "remove")
-	}
-
-	parts := parsePath(path)
-	if len(parts) == 0 {
-		return fmt.Errorf("empty path")
-	}
-
-	_, err := setValue(target, parts, nil, "remove", "")
-	return err
-}
-
-func applyMerge(target map[string]interface{}, path string, value interface{}) error {
-	if strings.Contains(path, "[?(") {
-		return applyPathWithArrayFilter(target, path, value, "merge")
-	}
-
+func applyMerge(target map[string]interface{}, rawPath string, value interface{}) error {
 	valueMap, ok := value.(map[string]interface{})
 	if !ok {
 		return fmt.Errorf("merge value must be an object")
 	}
 
-	parts := parsePath(path)
-	if len(parts) == 0 {
-		return fmt.Errorf("empty path")
+	resolved, err := expandPaths(target, rawPath)
+	if err != nil {
+		return err
 	}
-
-	_, err := setValue(target, parts, valueMap, "merge", "")
-	return err
-}
-
-func applyPathWithArrayFilter(target map[string]interface{}, path string, value interface{}, op string) error {
-	filterStart := strings.Index(path, "[?(")
-	if filterStart == -1 {
-		return fmt.Errorf("no array filter found in path: %s", path)
-	}
-
-	filterEnd := strings.Index(path[filterStart:], ")]")
-	if filterEnd == -1 {
-		return fmt.Errorf("unclosed array filter in path: %s", path)
-	}
-	filterEnd += filterStart + 2
-
-	prefixPath := path[:filterStart]
-	filterExpr := path[filterStart:filterEnd]
-	suffixPath := path[filterEnd:]
-
-	prefixPath = strings.TrimPrefix(prefixPath, "/")
-	prefixPath = strings.TrimSuffix(prefixPath, "/")
-
-	prefixParts := []string{}
-	if prefixPath != "" {
-		prefixParts = strings.Split(prefixPath, "/")
-	}
-
-	if len(prefixParts) == 0 {
-		return fmt.Errorf("array filter path %s must include a parent key", path)
-	}
-
-	current := interface{}(target)
-	for i := 0; i < len(prefixParts)-1; i++ {
-		part := prefixParts[i]
-		switch node := current.(type) {
-		case map[string]interface{}:
-			next, ok := node[part]
-			if !ok {
-				if op == "remove" {
-					return nil
-				}
-				newChild := make(map[string]interface{})
-				node[part] = newChild
-				current = newChild
-				continue
-			}
-			current = next
-		case []interface{}:
-			idx, err := strconv.Atoi(part)
-			if err != nil {
-				return fmt.Errorf("path segment %s is not a valid index", part)
-			}
-			if idx < 0 || idx >= len(node) {
-				return fmt.Errorf("index %d out of bounds for segment %s", idx, part)
-			}
-			current = node[idx]
-		default:
-			return fmt.Errorf("cannot traverse segment %s on type %T", part, current)
-		}
-	}
-
-	var parentMap map[string]interface{}
-	if len(prefixParts) > 0 {
-		last := prefixParts[len(prefixParts)-1]
-		if currentMap, ok := current.(map[string]interface{}); ok {
-			parentMap = currentMap
-			current = currentMap[last]
-		} else {
-			return fmt.Errorf("path element %s is not an object", last)
-		}
-	}
-
-	arrVal := current
-	if arrVal == nil {
-		if op == "remove" {
-			return nil
-		}
-		arrVal = []interface{}{}
-		parentMap[prefixParts[len(prefixParts)-1]] = arrVal
-	}
-
-	arr, ok := arrVal.([]interface{})
-	if !ok {
-		return fmt.Errorf("path element is not an array, got %T", arrVal)
-	}
-
-	if !strings.HasPrefix(filterExpr, "[?(") || !strings.HasSuffix(filterExpr, ")]") {
-		return fmt.Errorf("invalid filter expression: %s", filterExpr)
-	}
-
-	filterContent := filterExpr[3 : len(filterExpr)-2]
-	filterParts := strings.SplitN(filterContent, "==", 2)
-	if len(filterParts) != 2 {
-		return fmt.Errorf("invalid filter expression: %s", filterContent)
-	}
-
-	fieldPath := strings.TrimSpace(strings.TrimPrefix(filterParts[0], "@."))
-	targetValue := strings.Trim(strings.TrimSpace(filterParts[1]), "\"'")
-
-	suffixPath = strings.TrimPrefix(suffixPath, "/")
-	suffixParts := []string{}
-	if suffixPath != "" {
-		suffixParts = parsePath(suffixPath)
-	}
-
-	matched := false
-	newArr := make([]interface{}, 0, len(arr))
-
-	for _, item := range arr {
-		itemMap, ok := item.(map[string]interface{})
-		if !ok {
-			newArr = append(newArr, item)
-			continue
-		}
-
-	valueAtPath, exists := getNestedValue(itemMap, fieldPath)
-	if !exists || fmt.Sprintf("%v", valueAtPath) != targetValue {
-			newArr = append(newArr, item)
-			continue
-		}
-
-		matched = true
-
-		if len(suffixParts) == 0 {
-			switch op {
-			case "remove":
-				continue
-			case "merge":
-				valueMap, ok := value.(map[string]interface{})
-				if !ok {
-					return fmt.Errorf("merge value must be an object for %s", path)
-				}
-				itemMap = deepMerge(itemMap, valueMap)
-				newArr = append(newArr, itemMap)
-			case "add", "replace":
-				valueMap, ok := value.(map[string]interface{})
-				if !ok {
-					return fmt.Errorf("value must be an object for %s", path)
-				}
-				for k, v := range valueMap {
-					itemMap[k] = v
-				}
-				newArr = append(newArr, itemMap)
-			default:
-				return fmt.Errorf("unsupported operation %s for %s", op, path)
-			}
-			continue
-		}
-
-		_, err := setValue(itemMap, suffixParts, value, op, "")
-		if err != nil {
-			return err
-		}
-		newArr = append(newArr, itemMap)
-	}
-
-	if !matched {
+	if len(resolved) == 0 {
+		// Nothing to merge into.
 		return nil
 	}
 
-	if len(prefixParts) > 0 {
-		parentMap[prefixParts[len(prefixParts)-1]] = newArr
+	for _, pointer := range resolved {
+		if err := mergeAtPointer(target, pointer, valueMap); err != nil {
+			return err
+		}
 	}
-
 	return nil
 }
 
-func parsePath(path string) []string {
-	path = strings.TrimPrefix(path, "/")
+// --- Path expansion --------------------------------------------------------
+
+type pathState struct {
+	pointer []string
+	value   interface{}
+}
+
+func expandPaths(root map[string]interface{}, rawPath string) ([]string, error) {
+	if rawPath == "" {
+		return []string{""}, nil
+	}
+
+	segments := splitRawPath(rawPath)
+	states := []pathState{{pointer: []string{}, value: root}}
+
+	for _, segment := range segments {
+		if segment == "-" {
+			states = applyDash(states)
+			continue
+		}
+		nextStates := make([]pathState, 0, len(states))
+		for _, st := range states {
+			expanded, err := applySegment(st, segment)
+			if err != nil {
+				return nil, err
+			}
+			nextStates = append(nextStates, expanded...)
+		}
+		states = nextStates
+		if len(states) == 0 {
+			break
+		}
+	}
+
+	pointers := make([]string, 0, len(states))
+	for _, st := range states {
+		pointers = append(pointers, buildJSONPointer(st.pointer))
+	}
+	return pointers, nil
+}
+
+func applySegment(state pathState, segment string) ([]pathState, error) {
+	current := []pathState{state}
+	remaining := segment
+
+	for len(remaining) > 0 {
+		if strings.HasPrefix(remaining, "[") {
+			closeIdx := strings.Index(remaining, "]")
+			if closeIdx == -1 {
+				return nil, fmt.Errorf("unclosed bracket segment in %q", segment)
+			}
+			content := remaining[1:closeIdx]
+			remaining = remaining[closeIdx+1:]
+
+			var err error
+			switch {
+			case strings.HasPrefix(content, "?(") && strings.HasSuffix(content, ")"):
+				expr := content[2 : len(content)-1]
+				current, err = applyFilter(current, expr)
+			case content == "-":
+				current = applyDash(current)
+			default:
+				index, parseErr := strconv.Atoi(content)
+				if parseErr != nil {
+					return nil, fmt.Errorf("unsupported array index %q", content)
+				}
+				current, err = applyIndex(current, index)
+			}
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			nextBracket := strings.Index(remaining, "[")
+			var token string
+			if nextBracket == -1 {
+				token = remaining
+				remaining = ""
+			} else {
+				token = remaining[:nextBracket]
+				remaining = remaining[nextBracket:]
+			}
+			var err error
+			current, err = applyKey(current, token)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	return current, nil
+}
+
+func applyKey(states []pathState, key string) ([]pathState, error) {
+	if key == "" {
+		return states, nil
+	}
+
+	next := make([]pathState, 0, len(states))
+	for _, st := range states {
+		var child interface{}
+		switch current := st.value.(type) {
+		case map[string]interface{}:
+			child = current[key]
+		case nil:
+			child = nil
+		default:
+			return nil, fmt.Errorf("path segment %q expects an object, got %T", key, st.value)
+		}
+		next = append(next, pathState{
+			pointer: appendPointer(st.pointer, key),
+			value:   child,
+		})
+	}
+	return next, nil
+}
+
+func applyIndex(states []pathState, index int) ([]pathState, error) {
+	next := make([]pathState, 0, len(states))
+	for _, st := range states {
+		arr, ok := st.value.([]interface{})
+		if !ok {
+			return nil, fmt.Errorf("path segment expects an array, got %T", st.value)
+		}
+		if index < 0 || index >= len(arr) {
+			return nil, fmt.Errorf("array index %d out of bounds", index)
+		}
+		next = append(next, pathState{
+			pointer: appendPointer(st.pointer, strconv.Itoa(index)),
+			value:   arr[index],
+		})
+	}
+	return next, nil
+}
+
+func applyDash(states []pathState) []pathState {
+	next := make([]pathState, len(states))
+	for i, st := range states {
+		next[i] = pathState{
+			pointer: appendPointer(st.pointer, "-"),
+			value:   nil,
+		}
+	}
+	return next
+}
+
+func applyFilter(states []pathState, expr string) ([]pathState, error) {
+	next := []pathState{}
+	for _, st := range states {
+		arr, ok := st.value.([]interface{})
+		if !ok || len(arr) == 0 {
+			continue
+		}
+		for idx, item := range arr {
+			match, err := matchesFilter(item, expr)
+			if err != nil {
+				return nil, err
+			}
+			if match {
+				next = append(next, pathState{
+					pointer: appendPointer(st.pointer, strconv.Itoa(idx)),
+					value:   item,
+				})
+			}
+		}
+	}
+	return next, nil
+}
+
+func matchesFilter(item interface{}, expr string) (bool, error) {
+	matches := filterExpr.FindStringSubmatch(strings.TrimSpace(expr))
+	if len(matches) != 3 {
+		return false, fmt.Errorf("unsupported filter expression: %s", expr)
+	}
+
+	fieldPath := strings.Split(matches[1], ".")
+	expected := matches[2]
+
+	current := item
+	for _, segment := range fieldPath {
+		m, ok := current.(map[string]interface{})
+		if !ok {
+			return false, nil
+		}
+		current, ok = m[segment]
+		if !ok {
+			return false, nil
+		}
+	}
+
+	if current == nil {
+		return expected == "", nil
+	}
+	return fmt.Sprintf("%v", current) == expected, nil
+}
+
+func splitRawPath(path string) []string {
 	if path == "" {
 		return []string{}
 	}
+	trimmed := strings.TrimPrefix(path, "/")
+	if trimmed == "" {
+		return []string{""}
+	}
+	return strings.Split(trimmed, "/")
+}
 
-	parts := strings.Split(path, "/")
-	var result []string
-	for _, part := range parts {
-		if strings.Contains(part, "[") {
-			idx := strings.Index(part, "[")
-			if idx > 0 {
-				result = append(result, part[:idx])
-			}
-			indexPart := part[idx+1:]
-			indexPart = strings.TrimSuffix(indexPart, "]")
-			if indexPart != "" {
-				result = append(result, indexPart)
-			}
+func appendPointer(base []string, segment string) []string {
+	next := make([]string, len(base)+1)
+	copy(next, base)
+	next[len(base)] = segment
+	return next
+}
+
+func buildJSONPointer(segments []string) string {
+	if len(segments) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, seg := range segments {
+		b.WriteByte('/')
+		if seg == "-" {
+			b.WriteString(seg)
 		} else {
-			result = append(result, part)
+			b.WriteString(escapePointerSegment(seg))
 		}
 	}
+	return b.String()
+}
+
+// --- RFC6902 execution -----------------------------------------------------
+
+func applyJSONPatch(target map[string]interface{}, op, pointer string, value interface{}) error {
+	ops := []map[string]interface{}{
+		{
+			"op":   op,
+			"path": pointer,
+		},
+	}
+	if op != "remove" {
+		ops[0]["value"] = value
+	}
+
+	patchBytes, err := json.Marshal(ops)
+	if err != nil {
+		return fmt.Errorf("failed to marshal patch: %w", err)
+	}
+
+	docBytes, err := json.Marshal(target)
+	if err != nil {
+		return fmt.Errorf("failed to marshal resource: %w", err)
+	}
+
+	patch, err := jsonpatch.DecodePatch(patchBytes)
+	if err != nil {
+		return fmt.Errorf("failed to decode JSON patch: %w", err)
+	}
+
+	patched, err := patch.Apply(docBytes)
+	if err != nil {
+		return fmt.Errorf("failed to apply JSON patch: %w", err)
+	}
+
+	var updated map[string]interface{}
+	if err := json.Unmarshal(patched, &updated); err != nil {
+		return fmt.Errorf("failed to unmarshal patched document: %w", err)
+	}
+
+	for k := range target {
+		delete(target, k)
+	}
+	for k, v := range updated {
+		target[k] = v
+	}
+	return nil
+}
+
+func ensureParentExists(root map[string]interface{}, pointer string) error {
+	segments := splitPointer(pointer)
+	if len(segments) == 0 {
+		return nil
+	}
+
+	current := interface{}(root)
+	for i := 0; i < len(segments)-1; i++ {
+		seg := segments[i]
+
+		switch node := current.(type) {
+		case map[string]interface{}:
+			child, exists := node[seg]
+			if !exists || child == nil {
+				next := segments[i+1]
+				if next == "-" {
+					node[seg] = []interface{}{}
+				} else if _, err := strconv.Atoi(next); err == nil {
+					return fmt.Errorf("array index %s out of bounds at segment %s", next, seg)
+				} else {
+					node[seg] = map[string]interface{}{}
+				}
+				child = node[seg]
+			}
+			current = child
+		case []interface{}:
+			index, err := strconv.Atoi(seg)
+			if err != nil {
+				return fmt.Errorf("expected array index at segment %s", seg)
+			}
+			if index < 0 || index >= len(node) {
+				return fmt.Errorf("array index %d out of bounds at segment %s", index, seg)
+			}
+			current = node[index]
+		default:
+			return fmt.Errorf("cannot traverse segment %s on type %T", seg, current)
+		}
+	}
+	return nil
+}
+
+// --- Merge -----------------------------------------------------------------
+
+func mergeAtPointer(root map[string]interface{}, pointer string, value map[string]interface{}) error {
+	parent, last, err := navigateToParent(root, pointer, true)
+	if err != nil {
+		return err
+	}
+
+	switch container := parent.(type) {
+	case map[string]interface{}:
+		existing, _ := container[last].(map[string]interface{})
+		if existing == nil {
+			container[last] = deepCopyMap(value)
+			return nil
+		}
+		container[last] = DeepMerge(existing, value)
+	case []interface{}:
+		if last == "-" {
+			return fmt.Errorf("merge operation cannot target append position '-'")
+		}
+		index, err := strconv.Atoi(last)
+		if err != nil {
+			return fmt.Errorf("invalid array index %q for merge", last)
+		}
+		if index < 0 || index >= len(container) {
+			return fmt.Errorf("array index %d out of bounds for merge", index)
+		}
+		existing, _ := container[index].(map[string]interface{})
+		if existing == nil {
+			container[index] = deepCopyMap(value)
+			return nil
+		}
+		container[index] = DeepMerge(existing, value)
+	default:
+		return fmt.Errorf("merge parent must be object or array, got %T", parent)
+	}
+	return nil
+}
+
+func navigateToParent(root map[string]interface{}, pointer string, create bool) (interface{}, string, error) {
+	segments := splitPointer(pointer)
+	if len(segments) == 0 {
+		return root, "", nil
+	}
+	parentSegs := segments[:len(segments)-1]
+	last := segments[len(segments)-1]
+
+	current := interface{}(root)
+	for i, seg := range parentSegs {
+		switch node := current.(type) {
+		case map[string]interface{}:
+			child, exists := node[seg]
+			if !exists || child == nil {
+				if !create {
+					return nil, "", fmt.Errorf("missing path at segment %s", seg)
+				}
+				next := determineNextContainerType(parentSegs, i, last)
+				node[seg] = next
+				child = node[seg]
+			}
+			current = child
+		case []interface{}:
+			index, err := strconv.Atoi(seg)
+			if err != nil {
+				return nil, "", fmt.Errorf("expected array index at segment %s", seg)
+			}
+			if index < 0 || index >= len(node) {
+				return nil, "", fmt.Errorf("array index %d out of bounds at segment %s", index, seg)
+			}
+			current = node[index]
+		default:
+			return nil, "", fmt.Errorf("cannot traverse segment %s on type %T", seg, node)
+		}
+	}
+	return current, last, nil
+}
+
+func determineNextContainerType(segments []string, index int, last string) interface{} {
+	nextSeg := last
+	if index+1 < len(segments) {
+		nextSeg = segments[index+1]
+	}
+	if nextSeg == "-" {
+		return []interface{}{}
+	}
+	if _, err := strconv.Atoi(nextSeg); err == nil {
+		return []interface{}{}
+	}
+	return map[string]interface{}{}
+}
+
+// --- Helpers ----------------------------------------------------------------
+
+func splitPointer(pointer string) []string {
+	if pointer == "" {
+		return []string{}
+	}
+	trimmed := strings.TrimPrefix(pointer, "/")
+	if trimmed == "" {
+		return []string{""}
+	}
+	parts := strings.Split(trimmed, "/")
+	for i, part := range parts {
+		if part != "-" {
+			parts[i] = unescapePointerSegment(part)
+		}
+	}
+	return parts
+}
+
+func escapePointerSegment(seg string) string {
+	seg = strings.ReplaceAll(seg, "~", "~0")
+	seg = strings.ReplaceAll(seg, "/", "~1")
+	return seg
+}
+
+func unescapePointerSegment(seg string) string {
+	seg = strings.ReplaceAll(seg, "~1", "/")
+	seg = strings.ReplaceAll(seg, "~0", "~")
+	return seg
+}
+
+func deepCopyMap(src map[string]interface{}) map[string]interface{} {
+	if src == nil {
+		return nil
+	}
+	result := make(map[string]interface{}, len(src))
+	for k, v := range src {
+		switch typed := v.(type) {
+		case map[string]interface{}:
+			result[k] = deepCopyMap(typed)
+		case []interface{}:
+			result[k] = deepCopySlice(typed)
+		default:
+			result[k] = typed
+		}
+	}
+	return result
+}
+
+func deepCopySlice(src []interface{}) []interface{} {
+	if src == nil {
+		return nil
+	}
+	result := make([]interface{}, len(src))
+	for i, v := range src {
+		switch typed := v.(type) {
+		case map[string]interface{}:
+			result[i] = deepCopyMap(typed)
+		case []interface{}:
+			result[i] = deepCopySlice(typed)
+		default:
+			result[i] = typed
+		}
+	}
+	return result
+}
+
+// --- Existing helpers retained ---------------------------------------------
+
+// DeepMerge deeply merges two maps, with values from 'override' taking precedence.
+func DeepMerge(base, override map[string]interface{}) map[string]interface{} {
+	result := make(map[string]interface{})
+
+	for k, v := range base {
+		result[k] = v
+	}
+
+	for k, v := range override {
+		if baseVal, exists := result[k]; exists {
+			if baseMap, ok := baseVal.(map[string]interface{}); ok {
+				if overrideMap, ok := v.(map[string]interface{}); ok {
+					result[k] = DeepMerge(baseMap, overrideMap)
+					continue
+				}
+			}
+		}
+		result[k] = v
+	}
+
 	return result
 }
 
@@ -320,249 +618,3 @@ func FindTargetResources(resources []map[string]interface{}, target types.Target
 
 // Matcher evaluates if a resource satisfies a selector expression.
 type Matcher func(resource map[string]interface{}, selector string) bool
-
-func setValue(container interface{}, parts []string, value interface{}, op string, pathPrefix string) (interface{}, error) {
-	if len(parts) == 0 {
-		return container, nil
-	}
-
-	token := parts[0]
-	currentPath := pathPrefix + "/" + token
-	isLast := len(parts) == 1
-
-	switch node := container.(type) {
-	case map[string]interface{}:
-		if isLast {
-			return applyToMap(node, token, value, op, currentPath)
-		}
-
-		child, exists := node[token]
-		if !exists || child == nil {
-			if op == "replace" {
-				return nil, fmt.Errorf("cannot replace missing path %s", currentPath)
-			}
-			if op == "remove" {
-				return node, nil
-			}
-			child = createIntermediateContainer(parts[1:])
-			node[token] = child
-		}
-
-		updatedChild, err := setValue(child, parts[1:], value, op, currentPath)
-		if err != nil {
-			return nil, err
-		}
-		node[token] = updatedChild
-		return node, nil
-
-	case []interface{}:
-		if token == "-" && !isLast {
-			return nil, fmt.Errorf("'-' can only appear at the end of the path (seen at %s)", currentPath)
-		}
-
-		if isLast {
-			return applyToSlice(node, token, value, op, currentPath)
-		}
-
-		idx, err := strconv.Atoi(token)
-		if err != nil {
-			return nil, fmt.Errorf("invalid array index %s at %s", token, currentPath)
-		}
-		if idx < 0 {
-			return nil, fmt.Errorf("negative array index %d at %s", idx, currentPath)
-		}
-
-		if idx >= len(node) {
-			if op == "remove" {
-				return node, nil
-			}
-			for len(node) <= idx {
-				node = append(node, nil)
-			}
-		}
-
-		child := node[idx]
-		if child == nil && op != "remove" {
-			child = createIntermediateContainer(parts[1:])
-		}
-
-		updatedChild, err := setValue(child, parts[1:], value, op, currentPath)
-		if err != nil {
-			return nil, err
-		}
-		node[idx] = updatedChild
-		return node, nil
-
-	case nil:
-		if op == "remove" {
-			return nil, nil
-		}
-		newContainer := createContainerForToken(token, parts[1:])
-		return setValue(newContainer, parts, value, op, pathPrefix)
-
-	default:
-		if op == "remove" {
-			return container, nil
-		}
-		return nil, fmt.Errorf("cannot traverse through type %T at %s", container, currentPath)
-	}
-}
-
-func applyToMap(node map[string]interface{}, key string, value interface{}, op string, path string) (interface{}, error) {
-	switch op {
-	case "add", "replace":
-		node[key] = value
-		return node, nil
-	case "merge":
-		valueMap, ok := value.(map[string]interface{})
-		if !ok {
-			return nil, fmt.Errorf("merge value at %s must be an object", path)
-		}
-		existing, _ := node[key].(map[string]interface{})
-		node[key] = deepMerge(existing, valueMap)
-		return node, nil
-	case "remove":
-		delete(node, key)
-		return node, nil
-	default:
-		return nil, fmt.Errorf("unsupported operation %s at %s", op, path)
-	}
-}
-
-func applyToSlice(node []interface{}, token string, value interface{}, op string, path string) (interface{}, error) {
-	switch op {
-	case "add":
-		if token == "-" {
-			node = append(node, value)
-			return node, nil
-		}
-		idx, err := strconv.Atoi(token)
-		if err != nil {
-			return nil, fmt.Errorf("invalid array index %s at %s", token, path)
-		}
-		if idx < 0 || idx > len(node) {
-			return nil, fmt.Errorf("array index %d out of bounds at %s", idx, path)
-		}
-		if idx == len(node) {
-			node = append(node, value)
-			return node, nil
-		}
-		node = append(node[:idx], append([]interface{}{value}, node[idx:]...)...)
-		return node, nil
-	case "replace":
-		if token == "-" {
-			return nil, fmt.Errorf("replace does not support '-' at %s", path)
-		}
-		idx, err := strconv.Atoi(token)
-		if err != nil {
-			return nil, fmt.Errorf("invalid array index %s at %s", token, path)
-		}
-		if idx < 0 || idx >= len(node) {
-			return nil, fmt.Errorf("array index %d out of bounds at %s", idx, path)
-		}
-		node[idx] = value
-		return node, nil
-	case "remove":
-		if token == "-" {
-			if len(node) == 0 {
-				return node, nil
-			}
-			return node[:len(node)-1], nil
-		}
-		idx, err := strconv.Atoi(token)
-		if err != nil {
-			return nil, fmt.Errorf("invalid array index %s at %s", token, path)
-		}
-		if idx < 0 || idx >= len(node) {
-			return nil, fmt.Errorf("array index %d out of bounds at %s", idx, path)
-		}
-		return append(node[:idx], node[idx+1:]...), nil
-	case "merge":
-		if token == "-" {
-			return nil, fmt.Errorf("merge does not support '-' at %s", path)
-		}
-		idx, err := strconv.Atoi(token)
-		if err != nil {
-			return nil, fmt.Errorf("invalid array index %s at %s", token, path)
-		}
-		if idx < 0 || idx >= len(node) {
-			return nil, fmt.Errorf("array index %d out of bounds at %s", idx, path)
-		}
-		existing, _ := node[idx].(map[string]interface{})
-		valueMap, ok := value.(map[string]interface{})
-		if !ok {
-			return nil, fmt.Errorf("merge value at %s must be an object", path)
-		}
-		node[idx] = deepMerge(existing, valueMap)
-		return node, nil
-	default:
-		return nil, fmt.Errorf("unsupported operation %s at %s", op, path)
-	}
-}
-
-func createIntermediateContainer(remaining []string) interface{} {
-	if len(remaining) == 0 {
-		return make(map[string]interface{})
-	}
-	next := remaining[0]
-	if next == "-" || isIndexToken(next) {
-		return []interface{}{}
-	}
-	return make(map[string]interface{})
-}
-
-func createContainerForToken(token string, remaining []string) interface{} {
-	if token == "-" || isIndexToken(token) {
-		return []interface{}{}
-	}
-	return createIntermediateContainer(remaining)
-}
-
-func isIndexToken(token string) bool {
-	if token == "" {
-		return false
-	}
-	for _, ch := range token {
-		if ch < '0' || ch > '9' {
-			return false
-		}
-	}
-	return true
-}
-
-func getNestedValue(data interface{}, path string) (interface{}, bool) {
-	current := data
-	for _, segment := range strings.Split(path, ".") {
-		if segment == "" {
-			continue
-		}
-		switch node := current.(type) {
-		case map[string]interface{}:
-			val, ok := node[segment]
-			if !ok {
-				return nil, false
-			}
-			current = val
-		default:
-			return nil, false
-		}
-	}
-	return current, true
-}
-
-func deepMerge(base, override map[string]interface{}) map[string]interface{} {
-	result := make(map[string]interface{}, len(base))
-	for k, v := range base {
-		result[k] = v
-	}
-	for k, v := range override {
-		if existing, ok := result[k].(map[string]interface{}); ok {
-			if add, ok := v.(map[string]interface{}); ok {
-				result[k] = deepMerge(existing, add)
-				continue
-			}
-		}
-		result[k] = v
-	}
-	return result
-}
