@@ -67,3 +67,8 @@ spec:
             readOnly: true
         medium: ""
         sizeLimit: 1Gi
+
+    # Stage 5: Adjust ExternalSecret refresh
+    - name: external-secret-refresh
+      instanceId: default-refresh
+      config: {}
