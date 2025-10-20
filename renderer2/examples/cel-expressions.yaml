@@ -1,0 +1,126 @@
+componentTypeDefinition:
+    resource:deployment:
+        - |
+          ${(has(configurations.envs) && configurations.envs.size() > 0 ?
+            [{
+              "configMapRef": {
+                "name": metadata.name + "-env-config"
+              }
+            }] : []) +
+           (has(secrets.envs) && secrets.envs.size() > 0 ?
+            [{
+              "secretRef": {
+                "name": metadata.name + "-secret-envs"
+              }
+            }] : [])}
+        - ${build.image}
+        - |
+          ${has(configurations.files) && configurations.files.size() > 0 || has(secrets.files) && secrets.files.size() > 0 ?
+            (has(configurations.files) && configurations.files.size() > 0 ?
+              configurations.files.map(f, {
+                "name": f.name,
+                "configMap": {
+                  "name": metadata.name + "-config-" + f.name
+                }
+              }) : []) +
+             (has(secrets.files) && secrets.files.size() > 0 ?
+              secrets.files.map(f, {
+                "name": f.name,
+                "secret": {
+                  "secretName": metadata.name + "-secret-" + f.name
+                }
+              }) : [])
+          : omit()}
+        - |
+          ${has(configurations.files) && configurations.files.size() > 0 || has(secrets.files) && secrets.files.size() > 0 ?
+            (has(configurations.files) && configurations.files.size() > 0 ?
+              configurations.files.map(f, {
+                "name": f.name,
+                "mountPath": f.mountPath,
+                "subPath": "config"
+              }) : []) +
+             (has(secrets.files) && secrets.files.size() > 0 ?
+              secrets.files.map(f, {
+                "name": f.name,
+                "mountPath": f.mountPath,
+                "subPath": f.name
+              }) : [])
+          : omit()}
+        - |
+          ${merge({"app": metadata.name}, podSelectors)}
+        - ${metadata.namespace}
+        - ${metadata.name}
+        - |
+          ${podSelectors}
+        - ${spec.imagePullPolicy}
+        - ${spec.replicas}
+        - ${spec.resources.limits.cpu}
+        - ${spec.resources.limits.memory}
+        - ${spec.resources.requests.cpu}
+        - ${spec.resources.requests.memory}
+    resource:env-configs:
+        - '${configurations.envs.transformMapEntry(i, e, {e.name: e.value})}'
+        - ${has(configurations.envs) && configurations.envs.size() > 0}
+        - ${metadata.namespace}
+        - ${metadata.name}-env-config
+    resource:file-configs:
+        - ${configFile.content}
+        - ${configurations.files}
+        - ${metadata.namespace}
+        - ${metadata.name}-config-${configFile.name}
+    resource:pdb:
+        - ${metadata.name}
+        - ${spec.pdbEnabled}
+    resource:secret-envs:
+        - ${has(secrets.envs) && secrets.envs.size() > 0}
+        - ${metadata.namespace}
+        - ${metadata.name}-secret-envs
+        - '${secrets.envs.map(e, {"key": e.name, "valueRef": e.valueRef})}'
+    resource:secret-files:
+        - ${metadata.namespace}
+        - ${metadata.name}-secret-${secretFile.name}
+        - ${secretFile.name}
+        - ${secretFile.valueRef}
+        - ${secrets.files}
+addons:
+    emptydir-volume:
+        - |
+          ${has(item.readOnly) ? item.readOnly : false}
+        - |
+          ${has(item.subPath) ? item.subPath : ""}
+        - ${item.mountPath}
+        - ${spec.mounts}
+        - |
+          ${spec.sizeLimit != "" || spec.medium != "" ? {
+            "sizeLimit": spec.sizeLimit != "" ? spec.sizeLimit : omit(),
+            "medium": spec.medium != "" ? spec.medium : omit()
+          } : {}}
+        - ${spec.volumeName}
+        - /spec/template/spec/containers/[?(@.name=='${item.containerName}')]/volumeMounts/-
+    external-secret-refresh-with-add:
+        - ${!resource.metadata.name.endsWith("-secret-envs")}
+        - ${resource.metadata.name.endsWith("-secret-envs")}
+    persistent-volume-claim:
+        - ${metadata.namespace}
+        - ${metadata.name}-${instanceId}
+        - ${spec.accessMode}
+        - ${spec.mountPath}
+        - ${spec.readOnly}
+        - ${spec.size}
+        - ${spec.storageClass}
+        - ${spec.subPath}
+        - ${spec.volumeName}
+        - /spec/template/spec/containers/[?(@.name=='${spec.containerName}')]/volumeMounts/-
+    sidecar-container:
+        - |
+          ${has(spec.args) && spec.args.size() > 0 ? spec.args : omit()}
+        - |
+          ${has(spec.command) && spec.command.size() > 0 ? spec.command : omit()}
+        - |
+          ${has(spec.env) && spec.env.size() > 0 ? spec.env : omit()}
+        - ${spec.image}
+        - ${spec.name}
+        - ${spec.resources.limits.cpu}
+        - ${spec.resources.limits.memory}
+        - ${spec.resources.requests.cpu}
+        - ${spec.resources.requests.memory}

@@ -5,6 +5,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"github.com/chathurangada/cel_playground/renderer2/pkg/component"
 	"github.com/chathurangada/cel_playground/renderer2/pkg/parser"
@@ -56,6 +58,14 @@ func main() {
 	if err := parser.ValidateSchemas(ctd, addons, schemaOutputDir); err != nil {
 		log.Fatalf("schema validation failed: %v", err)
 	}
+
+	// Extract CEL expressions and write to file
+	exprOutput := collectCELExpressions(ctd, addons)
+	exprPath := filepath.Join(examplesDir, "cel-expressions.yaml")
+	if err := writeYAML(exprPath, exprOutput); err != nil {
+		log.Fatalf("failed to write CEL expressions file: %v", err)
+	}
+	fmt.Printf("\nCollected CEL expressions written to %s\n", exprPath)
 
 	envDir := filepath.Join(examplesDir, "env-settings")
 	envConfigs := []struct {
@@ -152,4 +162,92 @@ func generateStages(component *types.Component) []types.Stage {
 	}
 
 	return stages
+}
+
+type celExpressionsOutput struct {
+	ComponentTypeDefinition map[string][]string `yaml:"componentTypeDefinition"`
+	Addons                  map[string][]string `yaml:"addons"`
+}
+
+func collectCELExpressions(ctd *types.ComponentTypeDefinition, addons map[string]*types.Addon) celExpressionsOutput {
+	output := celExpressionsOutput{
+		ComponentTypeDefinition: make(map[string][]string),
+		Addons:                  make(map[string][]string),
+	}
+
+	for _, res := range ctd.Spec.Resources {
+		key := fmt.Sprintf("resource:%s", res.ID)
+		set := make(map[string]struct{})
+		addStringExpression(set, res.IncludeWhen)
+		addStringExpression(set, res.ForEach)
+		collectExpressionsFromValue(res.Template, set)
+		if len(set) > 0 {
+			output.ComponentTypeDefinition[key] = setToSortedSlice(set)
+		}
+	}
+
+	for name, addon := range addons {
+		set := make(map[string]struct{})
+		for _, create := range addon.Spec.Creates {
+			collectExpressionsFromValue(create, set)
+		}
+		for _, patchSpec := range addon.Spec.Patches {
+			addStringExpression(set, patchSpec.ForEach)
+			addStringExpression(set, patchSpec.Target.Where)
+			for _, op := range patchSpec.Operations {
+				addStringExpression(set, op.Path)
+				collectExpressionsFromValue(op.Value, set)
+			}
+		}
+		if len(set) > 0 {
+			output.Addons[name] = setToSortedSlice(set)
+		}
+	}
+
+	return output
+}
+
+func addStringExpression(set map[string]struct{}, value string) {
+	if strings.Contains(value, "${") {
+		set[value] = struct{}{}
+	}
+}
+
+func collectExpressionsFromValue(v interface{}, set map[string]struct{}) {
+	switch typed := v.(type) {
+	case string:
+		addStringExpression(set, typed)
+	case []interface{}:
+		for _, item := range typed {
+			collectExpressionsFromValue(item, set)
+		}
+	case map[string]interface{}:
+		for _, item := range typed {
+			collectExpressionsFromValue(item, set)
+		}
+	case map[interface{}]interface{}:
+		for _, item := range typed {
+			collectExpressionsFromValue(item, set)
+		}
+	}
+}
+
+func setToSortedSlice(set map[string]struct{}) []string {
+	if len(set) == 0 {
+		return nil
+	}
+	result := make([]string, 0, len(set))
+	for expr := range set {
+		result = append(result, expr)
+	}
+	sort.Strings(result)
+	return result
+}
+
+func writeYAML(path string, v interface{}) error {
+	data, err := yaml.Marshal(v)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
 }

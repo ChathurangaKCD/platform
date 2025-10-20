@@ -69,6 +69,6 @@ spec:
         sizeLimit: 1Gi
 
     # Stage 5: Adjust ExternalSecret refresh
-    - name: external-secret-refresh
+    - name: external-secret-refresh-with-add
       instanceId: default-refresh
       config: {}
