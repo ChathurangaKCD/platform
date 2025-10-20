@@ -29,7 +29,15 @@ func (r *RendererCoordinates) RenderComponentResources(
 	additionalCtx *types.AdditionalContext,
 	workload map[string]interface{},
 ) ([]map[string]interface{}, error) {
-	componentDefaults, err := schema.ComponentDefaults(definition.Spec.Schema)
+	definitionSchema := schema.Definition{
+		Types: definition.Spec.Schema.Types,
+		Schemas: []map[string]interface{}{
+			definition.Spec.Schema.Parameters,
+			definition.Spec.Schema.EnvOverrides,
+		},
+	}
+
+	componentDefaults, err := schema.ExtractDefaults(definitionSchema)
 	if err != nil {
 		return nil, fmt.Errorf("failed to calculate component defaults: %w", err)
 	}
@@ -48,7 +56,14 @@ func (r *RendererCoordinates) ApplyAddon(
 	additionalCtx *types.AdditionalContext,
 	matcher patch.Matcher,
 ) ([]map[string]interface{}, error) {
-	addonDefaults, err := schema.AddonDefaults(addon.Spec.Schema)
+	addonSchema := schema.Definition{
+		Types: addon.Spec.Schema.Types,
+		Schemas: []map[string]interface{}{
+			addon.Spec.Schema.Parameters,
+			addon.Spec.Schema.EnvOverrides,
+		},
+	}
+	addonDefaults, err := schema.ExtractDefaults(addonSchema)
 	if err != nil {
 		return nil, fmt.Errorf("failed to calculate defaults for addon %s: %w", addon.Metadata.Name, err)
 	}
@@ -80,7 +95,6 @@ func (r *RendererCoordinates) ApplyAddon(
 
 	return baseResources, nil
 }
-
 func (r *RendererCoordinates) applyPatchSpec(resources []map[string]interface{}, spec types.PatchSpec, inputs map[string]interface{}, matcher patch.Matcher) error {
 	targets := patch.FindTargetResources(resources, spec.Target, matcher)
 
@@ -93,11 +107,17 @@ func (r *RendererCoordinates) applyPatchSpec(resources []map[string]interface{},
 		if where == "" {
 			return true, nil
 		}
-		// Clone inputs so we don't mutate the caller's map.
-		filterInputs := cloneMap(baseInputs)
-		filterInputs["resource"] = target
 
-		result, err := r.TemplateEngine.Render(where, filterInputs)
+		previous, had := baseInputs["resource"]
+		baseInputs["resource"] = target
+
+		result, err := r.TemplateEngine.Render(where, baseInputs)
+		if had {
+			baseInputs["resource"] = previous
+		} else {
+			delete(baseInputs, "resource")
+		}
+
 		if err != nil {
 			if isMissingDataError(err) {
 				return false, nil
@@ -112,12 +132,22 @@ func (r *RendererCoordinates) applyPatchSpec(resources []map[string]interface{},
 	}
 
 	executeOperations := func(target map[string]interface{}, baseInputs map[string]interface{}) error {
-		opInputs := cloneMap(baseInputs)
-		opInputs["resource"] = target
+		previous, had := baseInputs["resource"]
+		baseInputs["resource"] = target
 		for _, op := range spec.Operations {
-			if err := patch.ApplyOperation(target, op, opInputs, r.TemplateEngine.Render); err != nil {
+			if err := patch.ApplyOperation(target, op, baseInputs, r.TemplateEngine.Render); err != nil {
+				if had {
+					baseInputs["resource"] = previous
+				} else {
+					delete(baseInputs, "resource")
+				}
 				return err
 			}
+		}
+		if had {
+			baseInputs["resource"] = previous
+		} else {
+			delete(baseInputs, "resource")
 		}
 		return nil
 	}
@@ -139,22 +169,37 @@ func (r *RendererCoordinates) applyPatchSpec(resources []map[string]interface{},
 			varName = "item"
 		}
 
+		previous, hadVar := inputs[varName]
 		for _, item := range items {
-			itemInputs := cloneMap(inputs)
-			itemInputs[varName] = item
+			inputs[varName] = item
 
 			for _, target := range targets {
-				match, err := matchTarget(spec.Target.Where, target, itemInputs)
+				match, err := matchTarget(spec.Target.Where, target, inputs)
 				if err != nil {
+					if hadVar {
+						inputs[varName] = previous
+					} else {
+						delete(inputs, varName)
+					}
 					return err
 				}
 				if !match {
 					continue
 				}
-				if err := executeOperations(target, itemInputs); err != nil {
+				if err := executeOperations(target, inputs); err != nil {
+					if hadVar {
+						inputs[varName] = previous
+					} else {
+						delete(inputs, varName)
+					}
 					return err
 				}
 			}
+		}
+		if hadVar {
+			inputs[varName] = previous
+		} else {
+			delete(inputs, varName)
 		}
 		return nil
 	}
