@@ -1,12 +1,14 @@
 package schema
 
 import (
-	"encoding/json"
 	"fmt"
 	"sort"
 
 	"github.com/kubernetes-sigs/kro/pkg/simpleschema"
+	apiext "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
 	extv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apiextschema "k8s.io/apiextensions-apiserver/pkg/apiserver/schema"
+	"k8s.io/apiextensions-apiserver/pkg/apiserver/schema/defaulting"
 )
 
 // Definition represents a schematized object assembled from one or more field maps.
@@ -36,20 +38,23 @@ func ToOpenAPISchema(def Definition) (*extv1.JSONSchemaProps, error) {
 
 // ExtractDefaults traverses the definition and returns its default values as a map.
 func ExtractDefaults(def Definition) (map[string]interface{}, error) {
-	schema, err := ToOpenAPISchema(def)
+	jsonSchemaV1, err := ToOpenAPISchema(def)
 	if err != nil {
 		return nil, err
 	}
 
-	defaults := extractObjectDefaults(schema)
-	if defaults == nil {
-		return map[string]interface{}{}, nil
+	internal := new(apiext.JSONSchemaProps)
+	if err := extv1.Convert_v1_JSONSchemaProps_To_apiextensions_JSONSchemaProps(jsonSchemaV1, internal, nil); err != nil {
+		return nil, fmt.Errorf("failed to convert schema: %w", err)
 	}
 
-	result, ok := defaults.(map[string]interface{})
-	if !ok {
-		return map[string]interface{}{}, nil
+	structural, err := apiextschema.NewStructural(internal)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build structural schema: %w", err)
 	}
+
+	result := map[string]interface{}{}
+	defaulting.Default(result, structural)
 	return result, nil
 }
 
@@ -107,53 +112,6 @@ func deepCopyValue(v interface{}) interface{} {
 	default:
 		return typed
 	}
-}
-
-func extractObjectDefaults(schema *extv1.JSONSchemaProps) interface{} {
-	if schema == nil {
-		return nil
-	}
-
-	if schema.Default != nil {
-		if value, err := decodeJSON(schema.Default.Raw); err == nil {
-			return value
-		}
-	}
-
-	if schema.Type == "object" {
-		result := map[string]interface{}{}
-		for key, prop := range schema.Properties {
-			if value := extractObjectDefaults(&prop); value != nil {
-				result[key] = value
-			}
-		}
-		if len(result) > 0 {
-			return result
-		}
-		return nil
-	}
-
-	if schema.Type == "array" && schema.Items != nil && schema.Items.Schema != nil {
-		if value := extractObjectDefaults(schema.Items.Schema); value != nil {
-			return []interface{}{value}
-		}
-	}
-
-	if schema.Default != nil {
-		if value, err := decodeJSON(schema.Default.Raw); err == nil {
-			return value
-		}
-	}
-
-	return nil
-}
-
-func decodeJSON(raw []byte) (interface{}, error) {
-	var out interface{}
-	if err := json.Unmarshal(raw, &out); err != nil {
-		return nil, err
-	}
-	return out, nil
 }
 
 func sortRequiredFields(schema *extv1.JSONSchemaProps) {
