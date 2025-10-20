@@ -172,3 +172,32 @@ func sortRequiredFields(schema *extv1.JSONSchemaProps) {
 		sortRequiredFields(schema.AdditionalProperties.Schema)
 	}
 }
+
+// ExtractDefaults extracts default values from a JSON schema
+func ExtractDefaults(schema *extv1.JSONSchemaProps) map[string]interface{} {
+	defaults := make(map[string]interface{})
+
+	if schema == nil || schema.Properties == nil {
+		return defaults
+	}
+
+	for name, prop := range schema.Properties {
+		if prop.Default != nil {
+			// Unmarshal the default value from JSON
+			var defaultValue interface{}
+			if err := json.Unmarshal(prop.Default.Raw, &defaultValue); err == nil {
+				defaults[name] = defaultValue
+			}
+		}
+
+		// Handle nested objects recursively
+		if prop.Type == "object" && prop.Properties != nil {
+			nestedDefaults := ExtractDefaults(&prop)
+			if len(nestedDefaults) > 0 {
+				defaults[name] = nestedDefaults
+			}
+		}
+	}
+
+	return defaults
+}

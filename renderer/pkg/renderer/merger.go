@@ -7,12 +7,23 @@ import (
 
 // BuildInputs creates the input context for CEL evaluation by merging Component and EnvSettings
 func BuildInputs(
+	ctd *types.ComponentTypeDefinition,
 	component *types.Component,
 	envSettings *types.EnvSettings,
 	additionalCtx *parser.AdditionalContext,
 ) map[string]interface{} {
-	// Start with component parameters
+	// Start with schema defaults
 	spec := make(map[string]interface{})
+
+	// Generate schema and extract defaults
+	if schema, err := parser.GenerateJSONSchema(ctd); err == nil {
+		defaults := parser.ExtractDefaults(schema)
+		for k, v := range defaults {
+			spec[k] = v
+		}
+	}
+
+	// Merge component parameters (override defaults)
 	for k, v := range component.Spec.Parameters {
 		spec[k] = v
 	}

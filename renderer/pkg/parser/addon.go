@@ -26,19 +26,29 @@ func LoadAddon(path string) (*types.Addon, error) {
 
 // LoadAddons loads multiple addon definitions from a directory
 func LoadAddons(addonDir string, addonNames []string) (map[string]*types.Addon, error) {
+	// Map addon names to file names
+	nameToFile := map[string]string{
+		"persistent-volume-claim": "pvc-addon.yaml",
+		"sidecar-container":       "sidecar-addon.yaml",
+		"emptydir-volume":         "emptydir-addon.yaml",
+	}
+
 	addons := make(map[string]*types.Addon)
 
 	for _, name := range addonNames {
-		// Try with -addon.yaml suffix first
-		addonPath := filepath.Join(addonDir, name+"-addon.yaml")
+		var addonPath string
+
+		// Check if there's a mapping for this addon name
+		if fileName, ok := nameToFile[name]; ok {
+			addonPath = filepath.Join(addonDir, fileName)
+		} else {
+			// Try with -addon.yaml suffix
+			addonPath = filepath.Join(addonDir, name+"-addon.yaml")
+		}
+
 		addon, err := LoadAddon(addonPath)
 		if err != nil {
-			// Try without suffix
-			addonPath = filepath.Join(addonDir, name+".yaml")
-			addon, err = LoadAddon(addonPath)
-			if err != nil {
-				return nil, fmt.Errorf("failed to load addon %s: %w", name, err)
-			}
+			return nil, fmt.Errorf("failed to load addon %s from %s: %w", name, addonPath, err)
 		}
 		addons[name] = addon
 	}

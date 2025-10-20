@@ -165,7 +165,7 @@ func renderStage(
 	additionalCtx *parser.AdditionalContext,
 ) ([]map[string]interface{}, error) {
 	// 1. Build inputs by merging component and environment settings
-	inputs := renderer.BuildInputs(component, envSettings, additionalCtx)
+	inputs := renderer.BuildInputs(ctd, component, envSettings, additionalCtx)
 
 	// 2. Render base resources from ComponentTypeDefinition
 	resources, err := renderer.RenderBaseResources(ctd, inputs)
