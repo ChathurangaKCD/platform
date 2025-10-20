@@ -1,14 +1,15 @@
 # Adapter plan: renderer2 → kyaml JSON Patch
 
-Goal (implemented in `pkg/patch`/`pkg/pipeline`): keep renderer2’s expressive path syntax (CEL-evaluated strings, array filters, merge option, CEL-based targeting) while delegating the actual RFC 6902 work (“add”, “replace”, “remove”, “test”, “copy”, “move”) to a battle-tested library such as `github.com/evanphx/json-patch/v5`.
+Goal (implemented in `pkg/patch`/`pkg/pipeline`): keep renderer2’s expressive path syntax (CEL-evaluated strings, array filters, merge option, CEL-based targeting) while delegating the actual RFC 6902 work (“add”, “replace”, “remove”, “test”, “copy”, “move”) to a battle-tested library such as `github.com/evanphx/json-patch/v5`. Renderer2 retains ownership of the merge-style extensions (`merge`, `mergeShallow`) because they are outside the JSON Patch specification.
 
 ## Current behaviour to preserve
 
 1. **Array filters** – paths may include `[?(@.field=='value')]`, optionally nested.
 2. **Automatic creation of parent objects** when adding into missing maps/arrays (e.g., auto-create `spec.template.spec.volumes` when appending the first volume).
-3. **Merge op** – deep merge of maps to avoid clobbering sibling keys.
+3. **Merge ops (custom)** – keep both map strategies: `merge` performs a deep merge while `mergeShallow` overlays one level of keys; both stay custom because JSON Patch does not define them.
 4. **Multiple matches** – a single path expression may target several items.
 5. **CEL-driven values & paths** – path strings have already been evaluated before `ApplyPatch`.
+6. **forEach loops** – addons can iterate across a list, binding a per-item context before executing operations.
 
 ## Proposed flow
 
@@ -90,4 +91,4 @@ Applying operations sequentially keeps the resource up to date for the next poin
    - Removal of filtered entries.
    - Merge vs add interplay.
 
-This design now powers `pkg/patch`: array-filtered paths are resolved into concrete JSON Pointers, parents are created for `add`, and each operation is executed through the json-patch engine. The custom deep-merge handler remains for `merge`.
+This design now powers `pkg/patch`: array-filtered paths are resolved into concrete JSON Pointers, parents are created for `add`, and each operation is executed through the json-patch engine. Custom merge handlers remain for `merge` (deep) and `mergeShallow` (shallow overlay).

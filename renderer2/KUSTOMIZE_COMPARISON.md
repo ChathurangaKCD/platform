@@ -10,7 +10,7 @@ This document captures how the renderer2 patch engine differs from the patching 
 | Append to array with trailing `-` | ✅ | ✅ | ⚠️ (requires strategic-merge map semantics) | Both engines follow RFC 6902. |
 | Filter array entries (`[?(@.name=='app')]`) | ✅ | ❌ | ❌ | Kustomize expects plain JSON Pointer segments. |
 | Deep merge of map at arbitrary path | ✅ (`op: merge`) | ❌ | ⚠️ (only via whole-resource strategic merge) | Strategic merge rewrites entire resource unless trimmed carefully. |
-| Add/merge while preserving developer-supplied keys | ✅ | ❌ (must resend entire map) | ⚠️ (needs full resource context) | Renderer2 specifies just the keys to merge. |
+| Add/merge while preserving developer-supplied keys | ✅ | ❌ (must resend entire map) | ⚠️ (needs full resource context) | Renderer2 specifies just the keys to merge via `merge` (deep) or `mergeShallow` (shallow). |
 | Custom selectors (`target.ResourceType`, future label selectors) | ✅ | ❌ | ❌ | Kustomize patches apply to a single resource chosen by user-provided metadata or file ordering. |
 | CEL-driven path/value evaluation | ✅ | ❌ | ❌ | Renderer2 paths and values can contain `${…}` expressions. |
 | Schema-aware defaults injected before patch applies | ✅ | ❌ | ❌ | Kustomize relies on raw YAML values. |
