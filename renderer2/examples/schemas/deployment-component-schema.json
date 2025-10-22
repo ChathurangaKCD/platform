@@ -1,6 +1,8 @@
 {
   "type": "object",
-  "default": {},
+  "required": [
+    "resources"
+  ],
   "properties": {
     "imagePullPolicy": {
       "type": "string",
@@ -16,11 +18,13 @@
     },
     "resources": {
       "type": "object",
-      "default": {},
+      "required": [
+        "limits",
+        "requests"
+      ],
       "properties": {
         "limits": {
           "type": "object",
-          "default": {},
           "properties": {
             "cpu": {
               "type": "string",
@@ -34,7 +38,6 @@
         },
         "requests": {
           "type": "object",
-          "default": {},
           "properties": {
             "cpu": {
               "type": "string",

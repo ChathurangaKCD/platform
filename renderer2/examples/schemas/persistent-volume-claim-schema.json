@@ -30,7 +30,7 @@
     },
     "subPath": {
       "type": "string",
-      "default": ""
+      "default": "\"\""
     },
     "volumeName": {
       "type": "string"

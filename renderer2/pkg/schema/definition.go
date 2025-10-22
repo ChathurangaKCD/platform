@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/kubernetes-sigs/kro/pkg/simpleschema"
+	"github.com/chathurangada/cel_playground/renderer2/pkg/schema2"
 	apiext "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
 	extv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apiextschema "k8s.io/apiextensions-apiserver/pkg/apiserver/schema"
@@ -27,7 +27,8 @@ func ToOpenAPISchema(def Definition) (*extv1.JSONSchemaProps, error) {
 		}, nil
 	}
 
-	jsonSchema, err := simpleschema.ToOpenAPISpec(merged, def.Types)
+	converter := schema2.NewConverter(def.Types)
+	jsonSchema, err := converter.Convert(merged)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert schema to OpenAPI: %w", err)
 	}

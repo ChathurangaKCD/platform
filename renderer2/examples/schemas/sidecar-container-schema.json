@@ -1,8 +1,12 @@
 {
   "type": "object",
   "required": [
+    "args",
+    "command",
+    "env",
     "image",
-    "name"
+    "name",
+    "resources"
   ],
   "properties": {
     "args": {
@@ -43,11 +47,13 @@
     },
     "resources": {
       "type": "object",
-      "default": {},
+      "required": [
+        "limits",
+        "requests"
+      ],
       "properties": {
         "limits": {
           "type": "object",
-          "default": {},
           "properties": {
             "cpu": {
               "type": "string",
@@ -61,7 +67,6 @@
         },
         "requests": {
           "type": "object",
-          "default": {},
           "properties": {
             "cpu": {
               "type": "string",

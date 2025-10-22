@@ -7,7 +7,7 @@
   "properties": {
     "medium": {
       "type": "string",
-      "default": ""
+      "default": "\"\""
     },
     "mounts": {
       "type": "array",
@@ -31,14 +31,14 @@
           },
           "subPath": {
             "type": "string",
-            "default": ""
+            "default": "\"\""
           }
         }
       }
     },
     "sizeLimit": {
       "type": "string",
-      "default": ""
+      "default": "\"\""
     },
     "volumeName": {
       "type": "string"
