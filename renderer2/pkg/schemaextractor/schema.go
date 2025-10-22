@@ -13,14 +13,14 @@ import (
 
 // Converter builds OpenAPI schemas from simple schema definitions.
 type Converter struct {
-	types     map[string]interface{}
+	types     map[string]any
 	typeCache map[string]*extv1.JSONSchemaProps
 	typeStack map[string]bool
 }
 
 // NewConverter returns a Converter that knows about the given custom types.
-func NewConverter(types map[string]interface{}) *Converter {
-	copied := map[string]interface{}{}
+func NewConverter(types map[string]any) *Converter {
+	copied := map[string]any{}
 	for k, v := range types {
 		copied[k] = v
 	}
@@ -33,7 +33,7 @@ func NewConverter(types map[string]interface{}) *Converter {
 }
 
 // Convert converts a field map written with the simple schema shorthand into an OpenAPI schema.
-func (c *Converter) Convert(fields map[string]interface{}) (*extv1.JSONSchemaProps, error) {
+func (c *Converter) Convert(fields map[string]any) (*extv1.JSONSchemaProps, error) {
 	if len(fields) == 0 {
 		return &extv1.JSONSchemaProps{
 			Type:       "object",
@@ -44,7 +44,7 @@ func (c *Converter) Convert(fields map[string]interface{}) (*extv1.JSONSchemaPro
 	return c.buildObjectSchema(fields)
 }
 
-func (c *Converter) buildObjectSchema(fields map[string]interface{}) (*extv1.JSONSchemaProps, error) {
+func (c *Converter) buildObjectSchema(fields map[string]any) (*extv1.JSONSchemaProps, error) {
 	props := map[string]extv1.JSONSchemaProps{}
 	required := []string{}
 
@@ -85,11 +85,11 @@ func (c *Converter) buildObjectSchema(fields map[string]interface{}) (*extv1.JSO
 	return result, nil
 }
 
-func (c *Converter) buildFieldSchema(raw interface{}) (*extv1.JSONSchemaProps, bool, bool, error) {
+func (c *Converter) buildFieldSchema(raw any) (*extv1.JSONSchemaProps, bool, bool, error) {
 	switch typed := raw.(type) {
 	case string:
 		return c.schemaFromString(typed)
-	case map[string]interface{}:
+	case map[string]any:
 		schema, err := c.buildObjectSchema(typed)
 		return schema, false, false, err
 	default:
@@ -220,7 +220,7 @@ func (c *Converter) schemaFromCustomType(typeName string) (*extv1.JSONSchemaProp
 		if required && requiredMarker {
 			// required does not make sense on type definitions; ignore.
 		}
-	case map[string]interface{}:
+	case map[string]any:
 		built, err = c.buildObjectSchema(typed)
 	default:
 		err = fmt.Errorf("unsupported custom type definition for %q (type %T)", typeName, raw)
@@ -387,7 +387,7 @@ func applyConstraints(schema *extv1.JSONSchemaProps, constraintExpr, schemaType 
 	return required, hasRequired, nil
 }
 
-func parseValueForType(value, schemaType string) (interface{}, error) {
+func parseValueForType(value, schemaType string) (any, error) {
 	switch schemaType {
 	case "string":
 		return value, nil
@@ -418,11 +418,11 @@ func parseValueForType(value, schemaType string) (interface{}, error) {
 	case "array", "object":
 		if strings.TrimSpace(value) == "" {
 			if schemaType == "array" {
-				return []interface{}{}, nil
+				return []any{}, nil
 			}
-			return map[string]interface{}{}, nil
+			return map[string]any{}, nil
 		}
-		var parsed interface{}
+		var parsed any
 		if err := json.Unmarshal([]byte(value), &parsed); err != nil {
 			return nil, err
 		}
@@ -432,7 +432,7 @@ func parseValueForType(value, schemaType string) (interface{}, error) {
 		if strings.TrimSpace(value) == "" {
 			return value, nil
 		}
-		var parsed interface{}
+		var parsed any
 		if err := json.Unmarshal([]byte(value), &parsed); err == nil {
 			return parsed, nil
 		}
@@ -450,14 +450,14 @@ func parseValueForType(value, schemaType string) (interface{}, error) {
 	}
 }
 
-func parseArbitraryValue(value string) (interface{}, error) {
+func parseArbitraryValue(value string) (any, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return "", nil
 	}
 
 	if strings.HasPrefix(value, "{") || strings.HasPrefix(value, "[") {
-		var parsed interface{}
+		var parsed any
 		if err := json.Unmarshal([]byte(value), &parsed); err != nil {
 			return nil, err
 		}

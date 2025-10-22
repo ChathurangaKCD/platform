@@ -15,7 +15,7 @@ import (
 var filterExpr = regexp.MustCompile(`^@\.([A-Za-z0-9_.-]+)\s*==\s*['"](.*)['"]$`)
 
 // ApplyPatch applies a single patch operation against a target resource.
-func ApplyOperation(target map[string]interface{}, operation types.JSONPatchOperation, inputs map[string]interface{}, render func(interface{}, map[string]interface{}) (interface{}, error)) error {
+func ApplyOperation(target map[string]any, operation types.JSONPatchOperation, inputs map[string]any, render func(any, map[string]any) (any, error)) error {
 	pathValue, err := render(operation.Path, inputs)
 	if err != nil {
 		return fmt.Errorf("failed to evaluate patch path: %w", err)
@@ -26,7 +26,7 @@ func ApplyOperation(target map[string]interface{}, operation types.JSONPatchOper
 		return fmt.Errorf("patch path must evaluate to a string, got %T", pathValue)
 	}
 
-	var value interface{}
+	var value any
 	if operation.Op != "remove" {
 		value, err = render(operation.Value, inputs)
 		if err != nil {
@@ -45,7 +45,7 @@ func ApplyOperation(target map[string]interface{}, operation types.JSONPatchOper
 	}
 }
 
-func applyRFC6902(target map[string]interface{}, op, rawPath string, value interface{}) error {
+func applyRFC6902(target map[string]any, op, rawPath string, value any) error {
 	resolved, err := expandPaths(target, rawPath)
 	if err != nil {
 		return err
@@ -68,8 +68,8 @@ func applyRFC6902(target map[string]interface{}, op, rawPath string, value inter
 	return nil
 }
 
-func applyMerge(target map[string]interface{}, rawPath string, value interface{}) error {
-	valueMap, ok := value.(map[string]interface{})
+func applyMerge(target map[string]any, rawPath string, value any) error {
+	valueMap, ok := value.(map[string]any)
 	if !ok {
 		return fmt.Errorf("merge value must be an object")
 	}
@@ -95,10 +95,10 @@ func applyMerge(target map[string]interface{}, rawPath string, value interface{}
 
 type pathState struct {
 	pointer []string
-	value   interface{}
+	value   any
 }
 
-func expandPaths(root map[string]interface{}, rawPath string) ([]string, error) {
+func expandPaths(root map[string]any, rawPath string) ([]string, error) {
 	if rawPath == "" {
 		return []string{""}, nil
 	}
@@ -200,9 +200,9 @@ func applyKey(states []pathState, key string) ([]pathState, error) {
 
 	next := make([]pathState, 0, len(states))
 	for _, st := range states {
-		var child interface{}
+		var child any
 		switch current := st.value.(type) {
-		case map[string]interface{}:
+		case map[string]any:
 			child = current[key]
 		case nil:
 			child = nil
@@ -220,7 +220,7 @@ func applyKey(states []pathState, key string) ([]pathState, error) {
 func applyIndex(states []pathState, index int) ([]pathState, error) {
 	next := make([]pathState, 0, len(states))
 	for _, st := range states {
-		arr, ok := st.value.([]interface{})
+		arr, ok := st.value.([]any)
 		if !ok {
 			return nil, fmt.Errorf("path segment expects an array, got %T", st.value)
 		}
@@ -249,7 +249,7 @@ func applyDash(states []pathState) []pathState {
 func applyFilter(states []pathState, expr string) ([]pathState, error) {
 	next := []pathState{}
 	for _, st := range states {
-		arr, ok := st.value.([]interface{})
+		arr, ok := st.value.([]any)
 		if !ok || len(arr) == 0 {
 			continue
 		}
@@ -269,7 +269,7 @@ func applyFilter(states []pathState, expr string) ([]pathState, error) {
 	return next, nil
 }
 
-func matchesFilter(item interface{}, expr string) (bool, error) {
+func matchesFilter(item any, expr string) (bool, error) {
 	matches := filterExpr.FindStringSubmatch(strings.TrimSpace(expr))
 	if len(matches) != 3 {
 		return false, fmt.Errorf("unsupported filter expression: %s", expr)
@@ -280,7 +280,7 @@ func matchesFilter(item interface{}, expr string) (bool, error) {
 
 	current := item
 	for _, segment := range fieldPath {
-		m, ok := current.(map[string]interface{})
+		m, ok := current.(map[string]any)
 		if !ok {
 			return false, nil
 		}
@@ -332,8 +332,8 @@ func buildJSONPointer(segments []string) string {
 
 // --- RFC6902 execution -----------------------------------------------------
 
-func applyJSONPatch(target map[string]interface{}, op, pointer string, value interface{}) error {
-	ops := []map[string]interface{}{
+func applyJSONPatch(target map[string]any, op, pointer string, value any) error {
+	ops := []map[string]any{
 		{
 			"op":   op,
 			"path": pointer,
@@ -363,7 +363,7 @@ func applyJSONPatch(target map[string]interface{}, op, pointer string, value int
 		return fmt.Errorf("failed to apply JSON patch: %w", err)
 	}
 
-	var updated map[string]interface{}
+	var updated map[string]any
 	if err := json.Unmarshal(patched, &updated); err != nil {
 		return fmt.Errorf("failed to unmarshal patched document: %w", err)
 	}
@@ -377,32 +377,32 @@ func applyJSONPatch(target map[string]interface{}, op, pointer string, value int
 	return nil
 }
 
-func ensureParentExists(root map[string]interface{}, pointer string) error {
+func ensureParentExists(root map[string]any, pointer string) error {
 	segments := splitPointer(pointer)
 	if len(segments) == 0 {
 		return nil
 	}
 
-	current := interface{}(root)
+	current := any(root)
 	for i := 0; i < len(segments)-1; i++ {
 		seg := segments[i]
 
 		switch node := current.(type) {
-		case map[string]interface{}:
+		case map[string]any:
 			child, exists := node[seg]
 			if !exists || child == nil {
 				next := segments[i+1]
 				if next == "-" {
-					node[seg] = []interface{}{}
+					node[seg] = []any{}
 				} else if _, err := strconv.Atoi(next); err == nil {
 					return fmt.Errorf("array index %s out of bounds at segment %s", next, seg)
 				} else {
-					node[seg] = map[string]interface{}{}
+					node[seg] = map[string]any{}
 				}
 				child = node[seg]
 			}
 			current = child
-		case []interface{}:
+		case []any:
 			index, err := strconv.Atoi(seg)
 			if err != nil {
 				return fmt.Errorf("expected array index at segment %s", seg)
@@ -420,21 +420,21 @@ func ensureParentExists(root map[string]interface{}, pointer string) error {
 
 // --- Merge -----------------------------------------------------------------
 
-func mergeAtPointer(root map[string]interface{}, pointer string, value map[string]interface{}) error {
+func mergeAtPointer(root map[string]any, pointer string, value map[string]any) error {
 	parent, last, err := navigateToParent(root, pointer, true)
 	if err != nil {
 		return err
 	}
 
 	switch container := parent.(type) {
-	case map[string]interface{}:
-		existing, _ := container[last].(map[string]interface{})
+	case map[string]any:
+		existing, _ := container[last].(map[string]any)
 		if existing == nil {
 			container[last] = deepCopyMap(value)
 			return nil
 		}
 		container[last] = DeepMerge(existing, value)
-	case []interface{}:
+	case []any:
 		if last == "-" {
 			return fmt.Errorf("merge operation cannot target append position '-'")
 		}
@@ -445,7 +445,7 @@ func mergeAtPointer(root map[string]interface{}, pointer string, value map[strin
 		if index < 0 || index >= len(container) {
 			return fmt.Errorf("array index %d out of bounds for merge", index)
 		}
-		existing, _ := container[index].(map[string]interface{})
+		existing, _ := container[index].(map[string]any)
 		if existing == nil {
 			container[index] = deepCopyMap(value)
 			return nil
@@ -457,7 +457,7 @@ func mergeAtPointer(root map[string]interface{}, pointer string, value map[strin
 	return nil
 }
 
-func navigateToParent(root map[string]interface{}, pointer string, create bool) (interface{}, string, error) {
+func navigateToParent(root map[string]any, pointer string, create bool) (any, string, error) {
 	segments := splitPointer(pointer)
 	if len(segments) == 0 {
 		return root, "", nil
@@ -465,10 +465,10 @@ func navigateToParent(root map[string]interface{}, pointer string, create bool) 
 	parentSegs := segments[:len(segments)-1]
 	last := segments[len(segments)-1]
 
-	current := interface{}(root)
+	current := any(root)
 	for i, seg := range parentSegs {
 		switch node := current.(type) {
-		case map[string]interface{}:
+		case map[string]any:
 			child, exists := node[seg]
 			if !exists || child == nil {
 				if !create {
@@ -479,7 +479,7 @@ func navigateToParent(root map[string]interface{}, pointer string, create bool) 
 				child = node[seg]
 			}
 			current = child
-		case []interface{}:
+		case []any:
 			index, err := strconv.Atoi(seg)
 			if err != nil {
 				return nil, "", fmt.Errorf("expected array index at segment %s", seg)
@@ -495,18 +495,18 @@ func navigateToParent(root map[string]interface{}, pointer string, create bool) 
 	return current, last, nil
 }
 
-func determineNextContainerType(segments []string, index int, last string) interface{} {
+func determineNextContainerType(segments []string, index int, last string) any {
 	nextSeg := last
 	if index+1 < len(segments) {
 		nextSeg = segments[index+1]
 	}
 	if nextSeg == "-" {
-		return []interface{}{}
+		return []any{}
 	}
 	if _, err := strconv.Atoi(nextSeg); err == nil {
-		return []interface{}{}
+		return []any{}
 	}
-	return map[string]interface{}{}
+	return map[string]any{}
 }
 
 // --- Helpers ----------------------------------------------------------------
@@ -540,16 +540,16 @@ func unescapePointerSegment(seg string) string {
 	return seg
 }
 
-func deepCopyMap(src map[string]interface{}) map[string]interface{} {
+func deepCopyMap(src map[string]any) map[string]any {
 	if src == nil {
 		return nil
 	}
-	result := make(map[string]interface{}, len(src))
+	result := make(map[string]any, len(src))
 	for k, v := range src {
 		switch typed := v.(type) {
-		case map[string]interface{}:
+		case map[string]any:
 			result[k] = deepCopyMap(typed)
-		case []interface{}:
+		case []any:
 			result[k] = deepCopySlice(typed)
 		default:
 			result[k] = typed
@@ -558,16 +558,16 @@ func deepCopyMap(src map[string]interface{}) map[string]interface{} {
 	return result
 }
 
-func deepCopySlice(src []interface{}) []interface{} {
+func deepCopySlice(src []any) []any {
 	if src == nil {
 		return nil
 	}
-	result := make([]interface{}, len(src))
+	result := make([]any, len(src))
 	for i, v := range src {
 		switch typed := v.(type) {
-		case map[string]interface{}:
+		case map[string]any:
 			result[i] = deepCopyMap(typed)
-		case []interface{}:
+		case []any:
 			result[i] = deepCopySlice(typed)
 		default:
 			result[i] = typed
@@ -579,8 +579,8 @@ func deepCopySlice(src []interface{}) []interface{} {
 // --- Existing helpers retained ---------------------------------------------
 
 // DeepMerge deeply merges two maps, with values from 'override' taking precedence.
-func DeepMerge(base, override map[string]interface{}) map[string]interface{} {
-	result := make(map[string]interface{})
+func DeepMerge(base, override map[string]any) map[string]any {
+	result := make(map[string]any)
 
 	for k, v := range base {
 		result[k] = v
@@ -588,8 +588,8 @@ func DeepMerge(base, override map[string]interface{}) map[string]interface{} {
 
 	for k, v := range override {
 		if baseVal, exists := result[k]; exists {
-			if baseMap, ok := baseVal.(map[string]interface{}); ok {
-				if overrideMap, ok := v.(map[string]interface{}); ok {
+			if baseMap, ok := baseVal.(map[string]any); ok {
+				if overrideMap, ok := v.(map[string]any); ok {
 					result[k] = DeepMerge(baseMap, overrideMap)
 					continue
 				}
@@ -602,8 +602,8 @@ func DeepMerge(base, override map[string]interface{}) map[string]interface{} {
 }
 
 // FindTargetResources locates resources that match the given target specification.
-func FindTargetResources(resources []map[string]interface{}, target types.TargetSpec, selector Matcher) []map[string]interface{} {
-	var matches []map[string]interface{}
+func FindTargetResources(resources []map[string]any, target types.TargetSpec, selector Matcher) []map[string]any {
+	var matches []map[string]any
 	for _, resource := range resources {
 		if target.Kind != "" {
 			if kind, ok := resource["kind"].(string); !ok || kind != target.Kind {
@@ -624,7 +624,7 @@ func FindTargetResources(resources []map[string]interface{}, target types.Target
 		}
 
 		if target.Name != "" {
-			metadata, _ := resource["metadata"].(map[string]interface{})
+			metadata, _ := resource["metadata"].(map[string]any)
 			if metadata == nil || metadata["name"] != target.Name {
 				continue
 			}
@@ -636,7 +636,7 @@ func FindTargetResources(resources []map[string]interface{}, target types.Target
 }
 
 // Matcher evaluates if a resource satisfies a selector expression.
-type Matcher func(resource map[string]interface{}, selector string) bool
+type Matcher func(resource map[string]any, selector string) bool
 
 func splitAPIVersion(apiVersion string) (group, version string) {
 	if apiVersion == "" {

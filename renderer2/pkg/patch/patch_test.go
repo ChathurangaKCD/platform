@@ -12,7 +12,7 @@ import (
 func TestApplyPatch(t *testing.T) {
 	t.Parallel()
 
-	render := func(v interface{}, _ map[string]interface{}) (interface{}, error) {
+	render := func(v any, _ map[string]any) (any, error) {
 		return v, nil
 	}
 
@@ -41,7 +41,7 @@ spec:
 				{
 					Op:   "add",
 					Path: "/spec/template/spec/containers/[?(@.name=='app')]/env/-",
-					Value: map[string]interface{}{
+					Value: map[string]any{
 						"name":  "B",
 						"value": "2",
 					},
@@ -133,7 +133,7 @@ spec:
 				{
 					Op:   "merge",
 					Path: "/spec/template/metadata/annotations",
-					Value: map[string]interface{}{
+					Value: map[string]any{
 						"platform": "enabled",
 					},
 				},
@@ -194,7 +194,7 @@ spec:
 				{
 					Op:   "add",
 					Path: "/spec/template/spec/containers/[?(@.role=='worker')]/env/-",
-					Value: map[string]interface{}{
+					Value: map[string]any{
 						"name":  "SHARED",
 						"value": "true",
 					},
@@ -224,7 +224,7 @@ spec:
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			var resource map[string]interface{}
+			var resource map[string]any
 			if err := yaml.Unmarshal([]byte(tt.initial), &resource); err != nil {
 				t.Fatalf("failed to unmarshal initial YAML: %v", err)
 			}
@@ -235,7 +235,7 @@ spec:
 				}
 			}
 
-			var wantObj map[string]interface{}
+			var wantObj map[string]any
 			if err := yaml.Unmarshal([]byte(tt.want), &wantObj); err != nil {
 				t.Fatalf("failed to unmarshal expected YAML: %v", err)
 			}
@@ -248,7 +248,7 @@ spec:
 }
 
 func TestApplyPatchTestOpFailure(t *testing.T) {
-	render := func(v interface{}, _ map[string]interface{}) (interface{}, error) {
+	render := func(v any, _ map[string]any) (any, error) {
 		return v, nil
 	}
 
@@ -260,7 +260,7 @@ spec:
         existing: "true"
 `
 
-	var resource map[string]interface{}
+	var resource map[string]any
 	if err := yaml.Unmarshal([]byte(initial), &resource); err != nil {
 		t.Fatalf("failed to unmarshal initial YAML: %v", err)
 	}
@@ -276,11 +276,11 @@ spec:
 	}
 }
 
-func cmpDiff(expected, actual map[string]interface{}) string {
+func cmpDiff(expected, actual map[string]any) string {
 	wantJSON, _ := json.Marshal(expected)
 	gotJSON, _ := json.Marshal(actual)
 
-	var wantNorm, gotNorm interface{}
+	var wantNorm, gotNorm any
 	_ = json.Unmarshal(wantJSON, &wantNorm)
 	_ = json.Unmarshal(gotJSON, &gotNorm)
 

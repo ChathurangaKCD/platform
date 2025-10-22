@@ -13,8 +13,8 @@ import (
 
 // Definition represents a schematized object assembled from one or more field maps.
 type Definition struct {
-	Types   map[string]interface{}
-	Schemas []map[string]interface{}
+	Types   map[string]any
+	Schemas []map[string]any
 }
 
 // ToJSONSchema converts the definition into an OpenAPI-compatible JSON schema.
@@ -38,7 +38,7 @@ func ToJSONSchema(def Definition) (*extv1.JSONSchemaProps, error) {
 }
 
 // ExtractDefaults traverses the definition and returns its default values as a map.
-func ExtractDefaults(def Definition) (map[string]interface{}, error) {
+func ExtractDefaults(def Definition) (map[string]any, error) {
 	jsonSchemaV1, err := ToJSONSchema(def)
 	if err != nil {
 		return nil, err
@@ -54,20 +54,20 @@ func ExtractDefaults(def Definition) (map[string]interface{}, error) {
 		return nil, fmt.Errorf("failed to build structural schema: %w", err)
 	}
 
-	result := map[string]interface{}{}
+	result := map[string]any{}
 	defaulting.Default(result, structural)
 	return result, nil
 }
 
-func mergeFieldMaps(maps []map[string]interface{}) map[string]interface{} {
-	result := map[string]interface{}{}
+func mergeFieldMaps(maps []map[string]any) map[string]any {
+	result := map[string]any{}
 	for _, fields := range maps {
 		mergeInto(result, fields)
 	}
 	return result
 }
 
-func mergeInto(dst map[string]interface{}, src map[string]interface{}) {
+func mergeInto(dst map[string]any, src map[string]any) {
 	if src == nil {
 		return
 	}
@@ -76,8 +76,8 @@ func mergeInto(dst map[string]interface{}, src map[string]interface{}) {
 		return
 	}
 	for k, v := range src {
-		if vMap, ok := v.(map[string]interface{}); ok {
-			existing, ok := dst[k].(map[string]interface{})
+		if vMap, ok := v.(map[string]any); ok {
+			existing, ok := dst[k].(map[string]any)
 			if !ok {
 				dst[k] = deepCopyMap(vMap)
 				continue
@@ -89,23 +89,23 @@ func mergeInto(dst map[string]interface{}, src map[string]interface{}) {
 	}
 }
 
-func deepCopyMap(src map[string]interface{}) map[string]interface{} {
+func deepCopyMap(src map[string]any) map[string]any {
 	if src == nil {
-		return map[string]interface{}{}
+		return map[string]any{}
 	}
-	result := make(map[string]interface{}, len(src))
+	result := make(map[string]any, len(src))
 	for k, v := range src {
 		result[k] = deepCopyValue(v)
 	}
 	return result
 }
 
-func deepCopyValue(v interface{}) interface{} {
+func deepCopyValue(v any) any {
 	switch typed := v.(type) {
-	case map[string]interface{}:
+	case map[string]any:
 		return deepCopyMap(typed)
-	case []interface{}:
-		result := make([]interface{}, len(typed))
+	case []any:
+		result := make([]any, len(typed))
 		for i, item := range typed {
 			result[i] = deepCopyValue(item)
 		}

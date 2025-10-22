@@ -15,7 +15,7 @@ import (
 func GenerateJSONSchema(ctd *types.ComponentTypeDefinition) (*extv1.JSONSchemaProps, error) {
 	return schema.ToJSONSchema(schema.Definition{
 		Types: ctd.Spec.Schema.Types,
-		Schemas: []map[string]interface{}{
+		Schemas: []map[string]any{
 			ctd.Spec.Schema.Parameters,
 			ctd.Spec.Schema.EnvOverrides,
 		},
@@ -26,7 +26,7 @@ func GenerateJSONSchema(ctd *types.ComponentTypeDefinition) (*extv1.JSONSchemaPr
 func GenerateAddonJSONSchema(addon *types.Addon) (*extv1.JSONSchemaProps, error) {
 	return schema.ToJSONSchema(schema.Definition{
 		Types: addon.Spec.Schema.Types,
-		Schemas: []map[string]interface{}{
+		Schemas: []map[string]any{
 			addon.Spec.Schema.Parameters,
 			addon.Spec.Schema.EnvOverrides,
 		},

@@ -123,7 +123,7 @@ func main() {
 	fmt.Println("\n✅ rendering complete using renderer2")
 }
 
-func writeOutput(resources []map[string]interface{}, path string) error {
+func writeOutput(resources []map[string]any, path string) error {
 	file, err := os.Create(path)
 	if err != nil {
 		return err
@@ -213,19 +213,19 @@ func addStringExpression(set map[string]struct{}, value string) {
 	}
 }
 
-func collectExpressionsFromValue(v interface{}, set map[string]struct{}) {
+func collectExpressionsFromValue(v any, set map[string]struct{}) {
 	switch typed := v.(type) {
 	case string:
 		addStringExpression(set, typed)
-	case []interface{}:
+	case []any:
 		for _, item := range typed {
 			collectExpressionsFromValue(item, set)
 		}
-	case map[string]interface{}:
+	case map[string]any:
 		for _, item := range typed {
 			collectExpressionsFromValue(item, set)
 		}
-	case map[interface{}]interface{}:
+	case map[any]any:
 		for _, item := range typed {
 			collectExpressionsFromValue(item, set)
 		}
@@ -244,7 +244,7 @@ func setToSortedSlice(set map[string]struct{}) []string {
 	return result
 }
 
-func writeYAML(path string, v interface{}) error {
+func writeYAML(path string, v any) error {
 	data, err := yaml.Marshal(v)
 	if err != nil {
 		return err

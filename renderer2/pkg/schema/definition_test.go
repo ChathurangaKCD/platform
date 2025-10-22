@@ -4,12 +4,12 @@ import "testing"
 
 func TestExtractDefaults_ArrayFieldBehaviour(t *testing.T) {
 	def := Definition{
-		Types: map[string]interface{}{
-			"Item": map[string]interface{}{
+		Types: map[string]any{
+			"Item": map[string]any{
 				"name": "string | default=default-name",
 			},
 		},
-		Schemas: []map[string]interface{}{
+		Schemas: []map[string]any{
 			{
 				"list": "[]Item",
 			},
@@ -25,12 +25,12 @@ func TestExtractDefaults_ArrayFieldBehaviour(t *testing.T) {
 	}
 
 	defWithArrayDefault := Definition{
-		Types: map[string]interface{}{
-			"Item": map[string]interface{}{
+		Types: map[string]any{
+			"Item": map[string]any{
 				"name": "string | default=default-name",
 			},
 		},
-		Schemas: []map[string]interface{}{
+		Schemas: []map[string]any{
 			{
 				"list": "[]Item | default=[{\"name\":\"custom\"}]",
 			},
@@ -41,11 +41,11 @@ func TestExtractDefaults_ArrayFieldBehaviour(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExtractDefaults returned error: %v", err)
 	}
-	got, ok := defaults["list"].([]interface{})
+	got, ok := defaults["list"].([]any)
 	if !ok {
 		t.Fatalf("expected slice default, got %T (%v)", defaults["list"], defaults["list"])
 	}
-	if len(got) != 1 || got[0].(map[string]interface{})["name"] != "custom" {
+	if len(got) != 1 || got[0].(map[string]any)["name"] != "custom" {
 		t.Fatalf("unexpected array default: %v", got)
 	}
 }

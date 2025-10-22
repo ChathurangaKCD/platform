@@ -31,12 +31,12 @@ func NewEngine() *Engine {
 }
 
 // Render walks the provided structure and evaluates CEL expressions against the supplied inputs.
-func (e *Engine) Render(data interface{}, inputs map[string]interface{}) (interface{}, error) {
+func (e *Engine) Render(data any, inputs map[string]any) (any, error) {
 	switch v := data.(type) {
 	case string:
 		return e.renderString(v, inputs)
-	case map[string]interface{}:
-		result := make(map[string]interface{}, len(v))
+	case map[string]any:
+		result := make(map[string]any, len(v))
 		for key, value := range v {
 			evaluatedKey := key
 			if renderedKey, err := e.renderString(key, inputs); err == nil {
@@ -58,8 +58,8 @@ func (e *Engine) Render(data interface{}, inputs map[string]interface{}) (interf
 			result[evaluatedKey] = renderedValue
 		}
 		return result, nil
-	case []interface{}:
-		result := make([]interface{}, len(v))
+	case []any:
+		result := make([]any, len(v))
 		for i, item := range v {
 			rendered, err := e.Render(item, inputs)
 			if err != nil {
@@ -73,7 +73,7 @@ func (e *Engine) Render(data interface{}, inputs map[string]interface{}) (interf
 	}
 }
 
-func (e *Engine) renderString(str string, inputs map[string]interface{}) (interface{}, error) {
+func (e *Engine) renderString(str string, inputs map[string]any) (any, error) {
 	expressions := findCELExpressions(str)
 	if len(expressions) == 0 {
 		return str, nil
@@ -156,7 +156,7 @@ func findCELExpressions(str string) []celMatch {
 	return matches
 }
 
-func normalizeCELResult(result interface{}, err error) (interface{}, error) {
+func normalizeCELResult(result any, err error) (any, error) {
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +169,7 @@ func normalizeCELResult(result interface{}, err error) (interface{}, error) {
 	return result, nil
 }
 
-func evaluateCEL(expression string, inputs map[string]interface{}) (interface{}, error) {
+func evaluateCEL(expression string, inputs map[string]any) (any, error) {
 	env, err := buildEnv(inputs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build CEL environment: %w", err)
@@ -223,7 +223,7 @@ func sanitizeK8sName(arg ref.Val) ref.Val {
 				parts = append(parts, str)
 			}
 		}
-	case []interface{}:
+	case []any:
 		for _, item := range v {
 			if str, ok := item.(string); ok {
 				parts = append(parts, str)
@@ -246,7 +246,7 @@ var sanitizeK8sResourceNameMacro = cel.GlobalVarArgMacro("sanitizeK8sResourceNam
 		}
 	})
 
-func buildEnv(inputs map[string]interface{}) (*cel.Env, error) {
+func buildEnv(inputs map[string]any) (*cel.Env, error) {
 	envOptions := []cel.EnvOption{
 		cel.OptionalTypes(),
 	}
@@ -276,11 +276,11 @@ func buildEnv(inputs map[string]interface{}) (*cel.Env, error) {
 					baseVal := lhs.Value()
 					overrideVal := rhs.Value()
 
-					baseMap := make(map[string]interface{})
-					overrideMap := make(map[string]interface{})
+					baseMap := make(map[string]any)
+					overrideMap := make(map[string]any)
 
 					switch b := baseVal.(type) {
-					case map[string]interface{}:
+					case map[string]any:
 						baseMap = b
 					case map[ref.Val]ref.Val:
 						for k, v := range b {
@@ -289,7 +289,7 @@ func buildEnv(inputs map[string]interface{}) (*cel.Env, error) {
 					}
 
 					switch o := overrideVal.(type) {
-					case map[string]interface{}:
+					case map[string]any:
 						overrideMap = o
 					case map[ref.Val]ref.Val:
 						for k, v := range o {
@@ -297,7 +297,7 @@ func buildEnv(inputs map[string]interface{}) (*cel.Env, error) {
 						}
 					}
 
-					result := make(map[string]interface{})
+					result := make(map[string]any)
 					for k, v := range baseMap {
 						result[k] = v
 					}
@@ -329,7 +329,7 @@ func buildEnv(inputs map[string]interface{}) (*cel.Env, error) {
 	return cel.NewEnv(envOptions...)
 }
 
-func convertCELValue(val ref.Val) interface{} {
+func convertCELValue(val ref.Val) any {
 	if types.IsError(val) {
 		if err, ok := val.Value().(error); ok && err.Error() == omitErrMsg {
 			return omitSentinel
@@ -350,19 +350,19 @@ func convertCELValue(val ref.Val) interface{} {
 	case types.ListType:
 		switch list := val.Value().(type) {
 		case []ref.Val:
-			result := make([]interface{}, len(list))
+			result := make([]any, len(list))
 			for i, item := range list {
 				result[i] = convertCELValue(item)
 			}
 			return result
-		case []interface{}:
-			result := make([]interface{}, len(list))
+		case []any:
+			result := make([]any, len(list))
 			for i, item := range list {
 				switch t := item.(type) {
 				case ref.Val:
 					result[i] = convertCELValue(t)
 				case map[ref.Val]ref.Val:
-					m := make(map[string]interface{})
+					m := make(map[string]any)
 					for k, v := range t {
 						keyStr := fmt.Sprintf("%v", k.Value())
 						m[keyStr] = convertCELValue(v)
@@ -379,13 +379,13 @@ func convertCELValue(val ref.Val) interface{} {
 	case types.MapType:
 		switch m := val.Value().(type) {
 		case map[ref.Val]ref.Val:
-			result := make(map[string]interface{})
+			result := make(map[string]any)
 			for k, v := range m {
 				result[fmt.Sprintf("%v", k.Value())] = convertCELValue(v)
 			}
 			return result
-		case map[string]interface{}:
-			result := make(map[string]interface{})
+		case map[string]any:
+			result := make(map[string]any)
 			for k, v := range m {
 				switch nested := v.(type) {
 				case ref.Val:
@@ -409,10 +409,10 @@ func convertCELValue(val ref.Val) interface{} {
 }
 
 // RemoveOmittedFields strips any values tagged with omit() from rendered output.
-func RemoveOmittedFields(data interface{}) interface{} {
+func RemoveOmittedFields(data any) any {
 	switch v := data.(type) {
-	case map[string]interface{}:
-		result := make(map[string]interface{}, len(v))
+	case map[string]any:
+		result := make(map[string]any, len(v))
 		for key, value := range v {
 			if value == omitSentinel {
 				continue
@@ -426,8 +426,8 @@ func RemoveOmittedFields(data interface{}) interface{} {
 			}
 		}
 		return result
-	case []interface{}:
-		result := make([]interface{}, 0, len(v))
+	case []any:
+		result := make([]any, 0, len(v))
 		for _, item := range v {
 			if item == omitSentinel {
 				continue

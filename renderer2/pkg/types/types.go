@@ -23,17 +23,17 @@ type ComponentTypeDefinitionSpec struct {
 }
 
 type Schema struct {
-	Types        map[string]interface{} `yaml:"types,omitempty"`
-	Parameters   map[string]interface{} `yaml:"parameters,omitempty"`
-	EnvOverrides map[string]interface{} `yaml:"envOverrides,omitempty"`
+	Types        map[string]any `yaml:"types,omitempty"`
+	Parameters   map[string]any `yaml:"parameters,omitempty"`
+	EnvOverrides map[string]any `yaml:"envOverrides,omitempty"`
 }
 
 type ResourceTemplate struct {
-	ID          string                 `yaml:"id"`
-	IncludeWhen string                 `yaml:"includeWhen,omitempty"`
-	ForEach     string                 `yaml:"forEach,omitempty"`
-	Var         string                 `yaml:"var,omitempty"`
-	Template    map[string]interface{} `yaml:"template"`
+	ID          string         `yaml:"id"`
+	IncludeWhen string         `yaml:"includeWhen,omitempty"`
+	ForEach     string         `yaml:"forEach,omitempty"`
+	Var         string         `yaml:"var,omitempty"`
+	Template    map[string]any `yaml:"template"`
 }
 
 // Addon augments rendered workloads with additional resources or patches.
@@ -45,11 +45,11 @@ type Addon struct {
 }
 
 type AddonSpec struct {
-	DisplayName   string        `yaml:"displayName,omitempty"`
-	Schema        Schema        `yaml:"schema"`
-	Creates       []interface{} `yaml:"creates,omitempty"`
-	Patches       []PatchSpec   `yaml:"patches,omitempty"`
-	Documentation string        `yaml:"documentation,omitempty"`
+	DisplayName   string      `yaml:"displayName,omitempty"`
+	Schema        Schema      `yaml:"schema"`
+	Creates       []any       `yaml:"creates,omitempty"`
+	Patches       []PatchSpec `yaml:"patches,omitempty"`
+	Documentation string      `yaml:"documentation,omitempty"`
 }
 
 type PatchSpec struct {
@@ -68,9 +68,9 @@ type TargetSpec struct {
 }
 
 type JSONPatchOperation struct {
-	Op    string      `yaml:"op"`
-	Path  string      `yaml:"path"`
-	Value interface{} `yaml:"value,omitempty"`
+	Op    string `yaml:"op"`
+	Path  string `yaml:"path"`
+	Value any    `yaml:"value,omitempty"`
 }
 
 type Component struct {
@@ -81,28 +81,28 @@ type Component struct {
 }
 
 type ComponentSpec struct {
-	ComponentType string                 `yaml:"componentType"`
-	Parameters    map[string]interface{} `yaml:"parameters,omitempty"`
-	Addons        []AddonInstance        `yaml:"addons,omitempty"`
-	Build         BuildSpec              `yaml:"build,omitempty"`
+	ComponentType string          `yaml:"componentType"`
+	Parameters    map[string]any  `yaml:"parameters,omitempty"`
+	Addons        []AddonInstance `yaml:"addons,omitempty"`
+	Build         BuildSpec       `yaml:"build,omitempty"`
 }
 
 type AddonInstance struct {
-	Name       string                 `yaml:"name"`
-	InstanceID string                 `yaml:"instanceId"`
-	Config     map[string]interface{} `yaml:"config,omitempty"`
+	Name       string         `yaml:"name"`
+	InstanceID string         `yaml:"instanceId"`
+	Config     map[string]any `yaml:"config,omitempty"`
 }
 
 type BuildSpec struct {
-	Image      string                 `yaml:"image,omitempty"`
-	Repository RepositorySpec         `yaml:"repository,omitempty"`
-	Template   map[string]interface{} `yaml:"templateRef,omitempty"`
+	Image      string         `yaml:"image,omitempty"`
+	Repository RepositorySpec `yaml:"repository,omitempty"`
+	Template   map[string]any `yaml:"templateRef,omitempty"`
 }
 
 type RepositorySpec struct {
-	URL      string                 `yaml:"url,omitempty"`
-	Revision map[string]interface{} `yaml:"revision,omitempty"`
-	AppPath  string                 `yaml:"appPath,omitempty"`
+	URL      string         `yaml:"url,omitempty"`
+	Revision map[string]any `yaml:"revision,omitempty"`
+	AppPath  string         `yaml:"appPath,omitempty"`
 }
 
 type EnvSettings struct {
@@ -113,11 +113,11 @@ type EnvSettings struct {
 }
 
 type EnvSettingsSpec struct {
-	Environment    string                            `yaml:"environment"`
-	Overrides      map[string]interface{}            `yaml:"overrides,omitempty"`
-	AddonOverrides map[string]map[string]interface{} `yaml:"addonOverrides,omitempty"`
-	Owner          *ComponentRef                     `yaml:"owner,omitempty"`
-	ComponentRef   *ComponentRef                     `yaml:"componentRef,omitempty"`
+	Environment    string                    `yaml:"environment"`
+	Overrides      map[string]any            `yaml:"overrides,omitempty"`
+	AddonOverrides map[string]map[string]any `yaml:"addonOverrides,omitempty"`
+	Owner          *ComponentRef             `yaml:"owner,omitempty"`
+	ComponentRef   *ComponentRef             `yaml:"componentRef,omitempty"`
 }
 
 type AdditionalContext struct {
@@ -169,10 +169,10 @@ type ComponentRef struct {
 }
 
 type Workload struct {
-	APIVersion string                 `yaml:"apiVersion"`
-	Kind       string                 `yaml:"kind"`
-	Metadata   Metadata               `yaml:"metadata"`
-	Spec       map[string]interface{} `yaml:"spec"`
+	APIVersion string         `yaml:"apiVersion"`
+	Kind       string         `yaml:"kind"`
+	Metadata   Metadata       `yaml:"metadata"`
+	Spec       map[string]any `yaml:"spec"`
 }
 
 // Stage defines a rendering stage when progressively applying addons.

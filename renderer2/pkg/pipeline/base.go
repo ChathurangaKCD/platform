@@ -27,11 +27,11 @@ func (r *RendererCoordinates) RenderComponentResources(
 	component *types.Component,
 	envSettings *types.EnvSettings,
 	additionalCtx *types.AdditionalContext,
-	workload map[string]interface{},
-) ([]map[string]interface{}, error) {
+	workload map[string]any,
+) ([]map[string]any, error) {
 	definitionSchema := schema.Definition{
 		Types: definition.Spec.Schema.Types,
-		Schemas: []map[string]interface{}{
+		Schemas: []map[string]any{
 			definition.Spec.Schema.Parameters,
 			definition.Spec.Schema.EnvOverrides,
 		},
@@ -48,17 +48,17 @@ func (r *RendererCoordinates) RenderComponentResources(
 
 // ApplyAddon composes addon creates and patches against already rendered resources.
 func (r *RendererCoordinates) ApplyAddon(
-	baseResources []map[string]interface{},
+	baseResources []map[string]any,
 	addon *types.Addon,
 	addonInstance types.AddonInstance,
 	component *types.Component,
 	envSettings *types.EnvSettings,
 	additionalCtx *types.AdditionalContext,
 	matcher patch.Matcher,
-) ([]map[string]interface{}, error) {
+) ([]map[string]any, error) {
 	addonSchema := schema.Definition{
 		Types: addon.Spec.Schema.Types,
-		Schemas: []map[string]interface{}{
+		Schemas: []map[string]any{
 			addon.Spec.Schema.Parameters,
 			addon.Spec.Schema.EnvOverrides,
 		},
@@ -77,12 +77,12 @@ func (r *RendererCoordinates) ApplyAddon(
 			return nil, fmt.Errorf("failed to render addon create template %s/%s: %w", addon.Metadata.Name, addonInstance.InstanceID, err)
 		}
 
-		renderedMap, ok := rendered.(map[string]interface{})
+		renderedMap, ok := rendered.(map[string]any)
 		if !ok {
 			return nil, fmt.Errorf("addon create template must render to an object (addon %s)", addon.Metadata.Name)
 		}
 
-		cleaned := template.RemoveOmittedFields(renderedMap).(map[string]interface{})
+		cleaned := template.RemoveOmittedFields(renderedMap).(map[string]any)
 		baseResources = append(baseResources, cleaned)
 	}
 
@@ -95,7 +95,7 @@ func (r *RendererCoordinates) ApplyAddon(
 
 	return baseResources, nil
 }
-func (r *RendererCoordinates) applyPatchSpec(resources []map[string]interface{}, spec types.PatchSpec, inputs map[string]interface{}, matcher patch.Matcher) error {
+func (r *RendererCoordinates) applyPatchSpec(resources []map[string]any, spec types.PatchSpec, inputs map[string]any, matcher patch.Matcher) error {
 	targets := patch.FindTargetResources(resources, spec.Target, matcher)
 
 	if len(spec.Operations) == 0 {
@@ -103,7 +103,7 @@ func (r *RendererCoordinates) applyPatchSpec(resources []map[string]interface{},
 	}
 
 	// Helper to evaluate the where clause for a given target with provided inputs.
-	matchTarget := func(where string, target map[string]interface{}, baseInputs map[string]interface{}) (bool, error) {
+	matchTarget := func(where string, target map[string]any, baseInputs map[string]any) (bool, error) {
 		if where == "" {
 			return true, nil
 		}
@@ -131,7 +131,7 @@ func (r *RendererCoordinates) applyPatchSpec(resources []map[string]interface{},
 		return boolResult, nil
 	}
 
-	executeOperations := func(target map[string]interface{}, baseInputs map[string]interface{}) error {
+	executeOperations := func(target map[string]any, baseInputs map[string]any) error {
 		previous, had := baseInputs["resource"]
 		baseInputs["resource"] = target
 		for _, op := range spec.Operations {
@@ -159,7 +159,7 @@ func (r *RendererCoordinates) applyPatchSpec(resources []map[string]interface{},
 			return fmt.Errorf("failed to evaluate patch forEach expression: %w", err)
 		}
 
-		items, ok := itemsRaw.([]interface{})
+		items, ok := itemsRaw.([]any)
 		if !ok {
 			return fmt.Errorf("forEach expression must evaluate to an array, got %T", itemsRaw)
 		}
@@ -220,8 +220,8 @@ func (r *RendererCoordinates) applyPatchSpec(resources []map[string]interface{},
 	return nil
 }
 
-func (r *RendererCoordinates) renderResourceTemplates(templates []types.ResourceTemplate, inputs map[string]interface{}) ([]map[string]interface{}, error) {
-	var resources []map[string]interface{}
+func (r *RendererCoordinates) renderResourceTemplates(templates []types.ResourceTemplate, inputs map[string]any) ([]map[string]any, error) {
+	var resources []map[string]any
 
 	for _, tmpl := range templates {
 		include, err := r.shouldInclude(tmpl, inputs)
@@ -238,7 +238,7 @@ func (r *RendererCoordinates) renderResourceTemplates(templates []types.Resource
 				return nil, fmt.Errorf("failed to evaluate forEach for resource %s: %w", tmpl.ID, err)
 			}
 
-			items, ok := rendered.([]interface{})
+			items, ok := rendered.([]any)
 			if !ok {
 				return nil, fmt.Errorf("forEach expression for resource %s must return an array, got %T", tmpl.ID, rendered)
 			}
@@ -257,12 +257,12 @@ func (r *RendererCoordinates) renderResourceTemplates(templates []types.Resource
 					return nil, fmt.Errorf("failed to render resource %s: %w", tmpl.ID, err)
 				}
 
-				resourceMap, ok := resource.(map[string]interface{})
+				resourceMap, ok := resource.(map[string]any)
 				if !ok {
 					return nil, fmt.Errorf("resource template must render to an object: %s", tmpl.ID)
 				}
 
-				cleaned := template.RemoveOmittedFields(resourceMap).(map[string]interface{})
+				cleaned := template.RemoveOmittedFields(resourceMap).(map[string]any)
 				resources = append(resources, cleaned)
 			}
 			continue
@@ -273,19 +273,19 @@ func (r *RendererCoordinates) renderResourceTemplates(templates []types.Resource
 			return nil, fmt.Errorf("failed to render resource %s: %w", tmpl.ID, err)
 		}
 
-		resourceMap, ok := resource.(map[string]interface{})
+		resourceMap, ok := resource.(map[string]any)
 		if !ok {
 			return nil, fmt.Errorf("resource template must render to an object: %s", tmpl.ID)
 		}
 
-		cleaned := template.RemoveOmittedFields(resourceMap).(map[string]interface{})
+		cleaned := template.RemoveOmittedFields(resourceMap).(map[string]any)
 		resources = append(resources, cleaned)
 	}
 
 	return resources, nil
 }
 
-func (r *RendererCoordinates) shouldInclude(tmpl types.ResourceTemplate, inputs map[string]interface{}) (bool, error) {
+func (r *RendererCoordinates) shouldInclude(tmpl types.ResourceTemplate, inputs map[string]any) (bool, error) {
 	if tmpl.IncludeWhen == "" {
 		return true, nil
 	}
@@ -306,8 +306,8 @@ func (r *RendererCoordinates) shouldInclude(tmpl types.ResourceTemplate, inputs 
 	return include, nil
 }
 
-func cloneMap(src map[string]interface{}) map[string]interface{} {
-	result := make(map[string]interface{}, len(src))
+func cloneMap(src map[string]any) map[string]any {
+	result := make(map[string]any, len(src))
 	for key, value := range src {
 		result[key] = value
 	}

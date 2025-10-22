@@ -154,12 +154,12 @@ name: ${sanitizeK8sResourceName(metadata.name, "-", spec.version)}
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			var tpl interface{}
+			var tpl any
 			if err := yaml.Unmarshal([]byte(tt.template), &tpl); err != nil {
 				t.Fatalf("failed to unmarshal template: %v", err)
 			}
 
-			var input map[string]interface{}
+			var input map[string]any
 			if err := json.Unmarshal([]byte(tt.inputs), &input); err != nil {
 				t.Fatalf("failed to unmarshal inputs: %v", err)
 			}
@@ -184,7 +184,7 @@ name: ${sanitizeK8sResourceName(metadata.name, "-", spec.version)}
 }
 
 func compareYAML(expected, actual string) error {
-	var wantObj, gotObj interface{}
+	var wantObj, gotObj any
 	if err := yaml.Unmarshal([]byte(expected), &wantObj); err != nil {
 		return fmt.Errorf("failed to unmarshal expected YAML: %w", err)
 	}

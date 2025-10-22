@@ -132,7 +132,7 @@ resources: Resources
 	assertConvertedSchema(t, typesYAML, schemaYAML, expected)
 }
 
-func assertSchemaJSON(t *testing.T, schema interface{}, expected string) {
+func assertSchemaJSON(t *testing.T, schema any, expected string) {
 	t.Helper()
 
 	actualBytes, err := json.MarshalIndent(schema, "", "  ")
@@ -148,7 +148,7 @@ func assertSchemaJSON(t *testing.T, schema interface{}, expected string) {
 func assertConvertedSchema(t *testing.T, typesYAML, schemaYAML, expected string) {
 	t.Helper()
 
-	var types map[string]interface{}
+	var types map[string]any
 	if strings.TrimSpace(typesYAML) != "" {
 		types = parseYAMLMap(t, typesYAML)
 	}
@@ -163,9 +163,9 @@ func assertConvertedSchema(t *testing.T, typesYAML, schemaYAML, expected string)
 	assertSchemaJSON(t, schema, expected)
 }
 
-func parseYAMLMap(t *testing.T, doc string) map[string]interface{} {
+func parseYAMLMap(t *testing.T, doc string) map[string]any {
 	t.Helper()
-	var out map[string]interface{}
+	var out map[string]any
 	if err := yaml.Unmarshal([]byte(doc), &out); err != nil {
 		t.Fatalf("failed to parse yaml: %v", err)
 	}

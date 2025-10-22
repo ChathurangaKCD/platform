@@ -3,8 +3,8 @@ package component
 import (
 	"fmt"
 
-	"github.com/chathurangada/cel_playground/renderer2/pkg/pipeline"
 	"github.com/chathurangada/cel_playground/renderer2/pkg/patch"
+	"github.com/chathurangada/cel_playground/renderer2/pkg/pipeline"
 	"github.com/chathurangada/cel_playground/renderer2/pkg/template"
 	"github.com/chathurangada/cel_playground/renderer2/pkg/types"
 )
@@ -30,8 +30,8 @@ func (r *Renderer) RenderAll(
 	envSettings *types.EnvSettings,
 	addonMap map[string]*types.Addon,
 	additionalCtx *types.AdditionalContext,
-	workload map[string]interface{},
-) ([]map[string]interface{}, error) {
+	workload map[string]any,
+) ([]map[string]any, error) {
 	return r.RenderWithAddonLimit(definition, component, envSettings, addonMap, additionalCtx, workload, len(component.Spec.Addons))
 }
 
@@ -42,9 +42,9 @@ func (r *Renderer) RenderWithAddonLimit(
 	envSettings *types.EnvSettings,
 	addonMap map[string]*types.Addon,
 	additionalCtx *types.AdditionalContext,
-	workload map[string]interface{},
+	workload map[string]any,
 	addonLimit int,
-) ([]map[string]interface{}, error) {
+) ([]map[string]any, error) {
 	resources, err := r.base.RenderComponentResources(definition, component, envSettings, additionalCtx, workload)
 	if err != nil {
 		return nil, err

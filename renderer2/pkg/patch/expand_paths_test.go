@@ -125,7 +125,7 @@ spec:
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			var root map[string]interface{}
+			var root map[string]any
 			if err := yaml.Unmarshal([]byte(tt.root), &root); err != nil {
 				t.Fatalf("failed to unmarshal root YAML: %v", err)
 			}
