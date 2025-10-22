@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/chathurangada/cel_playground/renderer2/pkg/schema2"
+	"github.com/chathurangada/cel_playground/renderer2/pkg/schemaextractor"
 	apiext "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
 	extv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apiextschema "k8s.io/apiextensions-apiserver/pkg/apiserver/schema"
@@ -17,8 +17,8 @@ type Definition struct {
 	Schemas []map[string]interface{}
 }
 
-// ToOpenAPISchema converts the definition into an OpenAPI schema.
-func ToOpenAPISchema(def Definition) (*extv1.JSONSchemaProps, error) {
+// ToJSONSchema converts the definition into an OpenAPI-compatible JSON schema.
+func ToJSONSchema(def Definition) (*extv1.JSONSchemaProps, error) {
 	merged := mergeFieldMaps(def.Schemas)
 	if len(merged) == 0 {
 		return &extv1.JSONSchemaProps{
@@ -27,7 +27,7 @@ func ToOpenAPISchema(def Definition) (*extv1.JSONSchemaProps, error) {
 		}, nil
 	}
 
-	converter := schema2.NewConverter(def.Types)
+	converter := schemaextractor.NewConverter(def.Types)
 	jsonSchema, err := converter.Convert(merged)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert schema to OpenAPI: %w", err)
@@ -39,7 +39,7 @@ func ToOpenAPISchema(def Definition) (*extv1.JSONSchemaProps, error) {
 
 // ExtractDefaults traverses the definition and returns its default values as a map.
 func ExtractDefaults(def Definition) (map[string]interface{}, error) {
-	jsonSchemaV1, err := ToOpenAPISchema(def)
+	jsonSchemaV1, err := ToJSONSchema(def)
 	if err != nil {
 		return nil, err
 	}
@@ -119,21 +119,17 @@ func sortRequiredFields(schema *extv1.JSONSchemaProps) {
 	if schema == nil {
 		return
 	}
-
 	if len(schema.Required) > 0 {
 		sort.Strings(schema.Required)
 	}
-
 	if schema.Properties != nil {
 		for _, prop := range schema.Properties {
 			sortRequiredFields(&prop)
 		}
 	}
-
 	if schema.Items != nil && schema.Items.Schema != nil {
 		sortRequiredFields(schema.Items.Schema)
 	}
-
 	if schema.AdditionalProperties != nil && schema.AdditionalProperties.Schema != nil {
 		sortRequiredFields(schema.AdditionalProperties.Schema)
 	}

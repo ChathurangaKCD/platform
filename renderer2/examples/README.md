@@ -38,11 +38,13 @@ renderer/examples/
 ## Rendering Flow
 
 Each stage shows incremental addon composition. Expected outputs are provided for three scenarios:
+
 1. **no-env/** - Component defaults (no EnvSettings applied)
 2. **dev/** - DEV environment overrides applied at every stage
 3. **prod/** - PROD environment overrides applied at every stage
 
 ### Stage 1: Base Component
+
 - **Input**: ComponentTypeDefinition + Component parameters
 - **Output**: Basic Deployment with 1 container
 - **EnvSettings Impact**:
@@ -51,6 +53,7 @@ Each stage shows incremental addon composition. Expected outputs are provided fo
   - `prod`: cpu: 500m, memory: 1Gi
 
 ### Stage 2: Add PVC Addon
+
 - **Addon**: `persistent-volume-claim` (instanceId: `app-data`)
 - **Creates**: PersistentVolumeClaim resource
 - **Patches**: Adds volume + volumeMount to `app` container
@@ -60,6 +63,7 @@ Each stage shows incremental addon composition. Expected outputs are provided fo
   - `prod`: 100Gi premium storage
 
 ### Stage 3: Add Sidecar Addon
+
 - **Addon**: `sidecar-container` (instanceId: `logger`)
 - **Patches**: Adds `fluent-bit` container to Deployment
 - **EnvSettings Impact on sidecar resources**:
@@ -68,6 +72,7 @@ Each stage shows incremental addon composition. Expected outputs are provided fo
   - `prod`: cpu: 100m, memory: 128Mi
 
 ### Stage 4: Add EmptyDir Addon
+
 - **Addon**: `emptydir-volume` (instanceId: `shared-logs`)
 - **Patches**: Adds emptyDir volume mounted to **both** containers
   - `app`: `/var/log/app` (read-write)
@@ -80,26 +85,31 @@ Each stage shows incremental addon composition. Expected outputs are provided fo
 ## Key Features Demonstrated
 
 ### 1. CEL Expression Evaluation
+
 - Variable interpolation: `${metadata.name}`, `${build.image}`
 - Resource references: `${spec.resources.requests.cpu}`
 - Conditional rendering: `${spec.medium != "" ? spec.medium : omit()}`
 
 ### 2. Addon Composition
+
 - **Creates**: New resources (PersistentVolumeClaim)
 - **Patches**: Modify existing resources (add volumes, containers)
 - **Multiple instances**: Same addon type with different instanceIds
 
 ### 3. Advanced Patching
+
 - Array append: `/spec/template/spec/volumes/-`
 - JSONPath filtering: `/containers/[?(@.name=='app')]/volumeMounts/-`
 - ForEach loops: Apply same patch for each item in array
 
 ### 4. Environment Overrides
+
 - Component-level: Override `envOverrides` fields
 - Addon-level: Override addon configs by `instanceId`
 - Merged at render time
 
-### 5. Schema Validation (Kro Simple Schema)
+### 5. Schema Validation (Simple Schema)
+
 - Custom types: `MountConfig`, `EnvVar`
 - Array types: `'[]string'`, `'[]MountConfig'`
 - Validation markers: `required=true`, `default=value`
@@ -113,14 +123,14 @@ spec:
   componentType: deployment-component
   parameters:
     replicas: 2
-    resources: {...}
+    resources: { ... }
   addons:
     - name: persistent-volume-claim
       instanceId: app-data
-      config: {...}
+      config: { ... }
     - name: sidecar-container
       instanceId: logger
-      config: {...}
+      config: { ... }
     - name: emptydir-volume
       instanceId: shared-logs
       config:

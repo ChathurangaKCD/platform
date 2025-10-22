@@ -13,7 +13,7 @@ import (
 
 // GenerateJSONSchema converts a ComponentTypeDefinition schema into OpenAPI v3 JSONSchema.
 func GenerateJSONSchema(ctd *types.ComponentTypeDefinition) (*extv1.JSONSchemaProps, error) {
-	return schema.ToOpenAPISchema(schema.Definition{
+	return schema.ToJSONSchema(schema.Definition{
 		Types: ctd.Spec.Schema.Types,
 		Schemas: []map[string]interface{}{
 			ctd.Spec.Schema.Parameters,
@@ -24,7 +24,7 @@ func GenerateJSONSchema(ctd *types.ComponentTypeDefinition) (*extv1.JSONSchemaPr
 
 // GenerateAddonJSONSchema converts an Addon schema into OpenAPI v3 JSONSchema.
 func GenerateAddonJSONSchema(addon *types.Addon) (*extv1.JSONSchemaProps, error) {
-	return schema.ToOpenAPISchema(schema.Definition{
+	return schema.ToJSONSchema(schema.Definition{
 		Types: addon.Spec.Schema.Types,
 		Schemas: []map[string]interface{}{
 			addon.Spec.Schema.Parameters,

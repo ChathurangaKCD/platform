@@ -1,4 +1,4 @@
-package schema2
+package schemaextractor
 
 import (
 	"encoding/json"
@@ -32,7 +32,7 @@ func NewConverter(types map[string]interface{}) *Converter {
 	}
 }
 
-// Convert converts a field map expressed in Kro-style simple schema syntax into an OpenAPI schema.
+// Convert converts a field map written with the simple schema shorthand into an OpenAPI schema.
 func (c *Converter) Convert(fields map[string]interface{}) (*extv1.JSONSchemaProps, error) {
 	if len(fields) == 0 {
 		return &extv1.JSONSchemaProps{

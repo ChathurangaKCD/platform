@@ -1,4 +1,4 @@
-package schema2
+package schemaextractor
 
 import (
 	"encoding/json"
