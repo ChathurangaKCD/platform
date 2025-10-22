@@ -106,6 +106,45 @@ spec:
         app: web
 `,
 		},
+		{
+			name: "sanitizeK8sResourceName with single argument",
+			template: `
+name: ${sanitizeK8sResourceName("Hello World!")}
+`,
+			inputs: `{}`,
+			want: `name: helloworld
+`,
+		},
+		{
+			name: "sanitizeK8sResourceName with multiple arguments",
+			template: `
+name: ${sanitizeK8sResourceName("my-app", "-", "v1.2.3")}
+`,
+			inputs: `{}`,
+			want: `name: myappv123
+`,
+		},
+		{
+			name: "sanitizeK8sResourceName with many arguments",
+			template: `
+name: ${sanitizeK8sResourceName("front", "-", "end", "-", "prod", "-", "us-west", "-", "99")}
+`,
+			inputs: `{}`,
+			want: `name: frontendproduswest99
+`,
+		},
+		{
+			name: "sanitizeK8sResourceName with dynamic values",
+			template: `
+name: ${sanitizeK8sResourceName(metadata.name, "-", spec.version)}
+`,
+			inputs: `{
+  "metadata": {"name": "payment-service"},
+  "spec": {"version": "v2.0"}
+}`,
+			want: `name: paymentservicev20
+`,
+		},
 	}
 
 	engine := NewEngine()

@@ -3,12 +3,16 @@ package template
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/google/cel-go/cel"
+	"github.com/google/cel-go/common"
+	"github.com/google/cel-go/common/ast"
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
 	"github.com/google/cel-go/ext"
+	"github.com/google/cel-go/parser"
 )
 
 // omitValue is a sentinel used to mark values that should be pruned after rendering.
@@ -192,6 +196,56 @@ func evaluateCEL(expression string, inputs map[string]interface{}) (interface{},
 	return convertCELValue(result), nil
 }
 
+func sanitizeK8sNameFromStrings(parts []string) ref.Val {
+	// Concatenate all parts
+	concatenated := strings.Join(parts, "")
+
+	// Replace everything except alphanumeric with empty string
+	reg := regexp.MustCompile(`[^a-zA-Z0-9]+`)
+	sanitized := reg.ReplaceAllString(concatenated, "")
+
+	// Convert to lowercase for K8s convention
+	sanitized = strings.ToLower(sanitized)
+
+	return types.String(sanitized)
+}
+
+func sanitizeK8sName(arg ref.Val) ref.Val {
+	parts := []string{}
+
+	// Handle different input types
+	switch v := arg.Value().(type) {
+	case string:
+		parts = append(parts, v)
+	case []ref.Val:
+		for _, item := range v {
+			if str, ok := item.Value().(string); ok {
+				parts = append(parts, str)
+			}
+		}
+	case []interface{}:
+		for _, item := range v {
+			if str, ok := item.(string); ok {
+				parts = append(parts, str)
+			}
+		}
+	}
+
+	return sanitizeK8sNameFromStrings(parts)
+}
+
+var sanitizeK8sResourceNameMacro = cel.GlobalVarArgMacro("sanitizeK8sResourceName",
+	func(eh parser.ExprHelper, target ast.Expr, args []ast.Expr) (ast.Expr, *common.Error) {
+		switch len(args) {
+		case 0:
+			return eh.NewCall("sanitizeK8sResourceName", eh.NewList()), nil
+		case 1:
+			return nil, nil
+		default:
+			return eh.NewCall("sanitizeK8sResourceName", eh.NewList(args...)), nil
+		}
+	})
+
 func buildEnv(inputs map[string]interface{}) (*cel.Env, error) {
 	envOptions := []cel.EnvOption{
 		cel.OptionalTypes(),
@@ -208,6 +262,7 @@ func buildEnv(inputs map[string]interface{}) (*cel.Env, error) {
 		ext.Lists(),
 		ext.Sets(),
 		ext.TwoVarComprehensions(),
+		cel.Macros(sanitizeK8sResourceNameMacro),
 		cel.Function("omit",
 			cel.Overload("omit", []*cel.Type{}, cel.DynType,
 				cel.FunctionBinding(func(values ...ref.Val) ref.Val {
@@ -257,6 +312,16 @@ func buildEnv(inputs map[string]interface{}) (*cel.Env, error) {
 
 					return types.NewDynamicMap(types.DefaultTypeAdapter, celResult)
 				}),
+			),
+		),
+		cel.Function("sanitizeK8sResourceName",
+			cel.Overload("sanitize_k8s_resource_name_string", []*cel.Type{cel.StringType}, cel.StringType,
+				cel.UnaryBinding(func(arg ref.Val) ref.Val {
+					return sanitizeK8sNameFromStrings([]string{arg.Value().(string)})
+				}),
+			),
+			cel.Overload("sanitize_k8s_resource_name_list", []*cel.Type{cel.ListType(cel.StringType)}, cel.StringType,
+				cel.UnaryBinding(sanitizeK8sName),
 			),
 		),
 	)
